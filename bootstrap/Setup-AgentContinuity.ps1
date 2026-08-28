@@ -100,6 +100,9 @@ if (Test-Path (Join-Path $worktree '.git')) {
     Write-Host "계약: 이 폴더의 allowedGlobs 안 변경은 '종료·인계' 때 자동 커밋됩니다 (§4.2)." -ForegroundColor Yellow
 }
 if (-not (Test-Path (Join-Path $worktree '.git'))) {
+    if ((Test-Path $worktree) -and @(Get-ChildItem -Force $worktree -ErrorAction SilentlyContinue).Count -gt 0) {
+        throw "지정한 경로가 git 저장소가 아닌데 비어 있지도 않습니다: $worktree`n기존 파일을 보호하기 위해 여기에 클론하지 않습니다. 빈 폴더 또는 이 프로젝트의 기존 클론을 지정하세요."
+    }
     New-Item -ItemType Directory -Path $worktree -Force | Out-Null
     Invoke-AcGit -RepoPath $worktree -Arguments @('init', '.') | Out-Null
     Invoke-AcGit -RepoPath $worktree -Arguments @('remote', 'add', 'origin', $ProjectRemote) | Out-Null

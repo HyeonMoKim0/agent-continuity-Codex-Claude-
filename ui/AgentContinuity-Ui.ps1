@@ -60,11 +60,13 @@ $xaml = @'
              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
              TextWrapping="NoWrap" Background="#1E1E1E" Foreground="#DDDDDD"/>
 
-    <UniformGrid Grid.Row="4" Columns="4" Margin="0,10,0,0">
-      <Button x:Name="BtnStart" Content="작업 시작" Height="42" Margin="0,0,6,0" FontWeight="Bold"/>
-      <Button x:Name="BtnFinish" Content="종료·인계" Height="42" Margin="0,0,6,0" FontWeight="Bold"/>
-      <Button x:Name="BtnRecover" Content="복구 센터" Height="42" Margin="0,0,6,0"/>
-      <Button x:Name="BtnTray" Content="트레이로 최소화" Height="42"/>
+    <UniformGrid Grid.Row="4" Rows="2" Columns="3" Margin="0,10,0,0">
+      <Button x:Name="BtnStart" Content="작업 시작" Height="40" Margin="0,0,6,6" FontWeight="Bold"/>
+      <Button x:Name="BtnFinish" Content="종료·인계" Height="40" Margin="0,0,6,6" FontWeight="Bold"/>
+      <Button x:Name="BtnRecover" Content="복구 센터" Height="40" Margin="0,0,0,6"/>
+      <Button x:Name="BtnAddProject" Content="프로젝트 추가" Height="40" Margin="0,0,6,0"/>
+      <Button x:Name="BtnMoveWorktree" Content="worktree 경로 변경" Height="40" Margin="0,0,6,0"/>
+      <Button x:Name="BtnTray" Content="트레이로 최소화" Height="40"/>
     </UniformGrid>
   </Grid>
 </Window>
@@ -102,8 +104,44 @@ $recoverXaml = @'
 </Window>
 '@
 
+$projectXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="프로젝트 등록" Width="560" Height="420" WindowStartupLocation="CenterOwner" FontSize="13">
+  <Grid Margin="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="130"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+    </Grid.ColumnDefinitions>
+    <TextBlock Grid.Row="0" Grid.Column="0" Text="기기 이름" VerticalAlignment="Center"/>
+    <TextBox x:Name="TxtMachine" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2"/>
+    <TextBlock Grid.Row="1" Grid.Column="0" Text="vault 저장소 URL" VerticalAlignment="Center"/>
+    <TextBox x:Name="TxtVault" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2"/>
+    <TextBlock Grid.Row="2" Grid.Column="0" Text="프로젝트 이름" VerticalAlignment="Center"/>
+    <TextBox x:Name="TxtName" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2"/>
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="프로젝트 저장소 URL" VerticalAlignment="Center"/>
+    <TextBox x:Name="TxtRemote" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2"/>
+    <TextBlock Grid.Row="4" Grid.Column="0" Text="에이전트" VerticalAlignment="Center"/>
+    <ComboBox x:Name="CmbAgent" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,2"/>
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="worktree 경로" VerticalAlignment="Center"/>
+    <TextBox x:Name="TxtPath" Grid.Row="5" Grid.Column="1" Margin="0,2"/>
+    <Button x:Name="BtnPickPath" Grid.Row="5" Grid.Column="2" Content="찾기" Padding="10,2" Margin="6,2,0,2"/>
+    <TextBlock Grid.Row="6" Grid.ColumnSpan="3" TextWrapping="Wrap" Foreground="#666666" Margin="0,8"
+               Text="worktree 경로: 비우면 기본 위치에 새로 클론합니다. 기존 클론 폴더를 지정하면 검증 후 전용 worktree 로 승격되며, 그 폴더의 허용 경로 안 변경은 이후 종료·인계 때 자동 커밋됩니다."/>
+    <UniformGrid Grid.Row="7" Grid.ColumnSpan="3" Columns="2">
+      <Button x:Name="BtnOk" Content="등록" Height="34" Margin="0,0,6,0" FontWeight="Bold"/>
+      <Button x:Name="BtnCancel" Content="취소" Height="34"/>
+    </UniformGrid>
+  </Grid>
+</Window>
+'@
+
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
-foreach ($name in @('CmbProject', 'BtnRefresh', 'TxtStatus', 'Banner', 'TxtBanner', 'TxtLog', 'BtnStart', 'BtnFinish', 'BtnRecover', 'BtnTray')) {
+foreach ($name in @('CmbProject', 'BtnRefresh', 'TxtStatus', 'Banner', 'TxtBanner', 'TxtLog', 'BtnStart', 'BtnFinish', 'BtnRecover', 'BtnAddProject', 'BtnMoveWorktree', 'BtnTray')) {
     Set-Variable -Name $name -Value $window.FindName($name)
 }
 
@@ -158,6 +196,7 @@ function Update-StatusPanel {
 $script:OutQueue = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
 $script:CurrentProc = $null
 $script:RunningLabel = ''
+$script:AfterExit = $null
 
 $timer = [System.Windows.Threading.DispatcherTimer]::new()
 $timer.Interval = [TimeSpan]::FromMilliseconds(300)
@@ -171,9 +210,13 @@ $timer.Add_Tick({
         $code = $script:CurrentProc.ExitCode
         $script:CurrentProc = $null
         $timer.Stop()
-        foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh)) { $b.IsEnabled = $true }
+        foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree)) { $b.IsEnabled = $true }
         if ($code -eq 0) { Set-Banner green "$($script:RunningLabel) 완료" }
         else { Set-Banner red "$($script:RunningLabel) 중단 (코드 $code) — 로그의 원인·보존 위치·권장 행동을 확인하세요" }
+        if ($script:AfterExit) {
+            $cb = $script:AfterExit; $script:AfterExit = $null
+            try { & $cb $code } catch { Write-AcLog -Level WARN -Message "후처리 실패: $_" }
+        }
         Update-StatusPanel
     }
 })
@@ -182,20 +225,27 @@ function Start-LauncherProcess {
     param(
         [Parameter(Mandatory)][string] $Label,
         [Parameter(Mandatory)][string] $ScriptRel,
-        [string[]] $Arguments = @()
+        [string[]] $Arguments = @(),
+        [switch] $NoProject,          # Setup 등 프로젝트 선택과 무관한 스크립트
+        [scriptblock] $OnExit         # 종료 코드(int)를 받아 UI 후처리
     )
     if ($script:CurrentProc) { return }
-    $project = Get-SelectedProject
-    if (-not $project) { Set-Banner red '프로젝트를 선택하세요'; return }
+    $fullArgs = $Arguments
+    if (-not $NoProject) {
+        $project = Get-SelectedProject
+        if (-not $project) { Set-Banner red '프로젝트를 선택하세요'; return }
+        $fullArgs = @('-ProjectName', $project.name) + $Arguments
+    }
     $TxtLog.Clear()
     Set-Banner yellow "$Label 실행 중..."
     $script:RunningLabel = $Label
-    foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh)) { $b.IsEnabled = $false }
+    $script:AfterExit = $OnExit
+    foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree)) { $b.IsEnabled = $false }
 
     # 한국어 Windows 의 기본 콘솔 코드페이지(CP949)로 인한 로그 깨짐 방지:
     # 자식 pwsh 가 UTF-8 로 출력하도록 -Command 래퍼에서 인코딩을 고정한다.
     $scriptPath = Join-Path $script:AcRoot $ScriptRel
-    $quotedArgs = foreach ($a in (@('-ProjectName', $project.name) + $Arguments)) {
+    $quotedArgs = foreach ($a in $fullArgs) {
         if ($a -like '-*') { $a } else { "'" + ($a -replace "'", "''") + "'" }
     }
     $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
@@ -262,6 +312,90 @@ function Show-RecoveryDialog {
 }
 
 # ---------------------------------------------------------------------------
+# project registration / worktree move (D2: UI 안의 Setup 마법사)
+# ---------------------------------------------------------------------------
+
+function Update-ProjectList {
+    param([string] $SelectName)
+    $CmbProject.Items.Clear()
+    $config = Get-AcConfig
+    if ($config) {
+        foreach ($p in @($config.projects)) { $CmbProject.Items.Add($p.name) | Out-Null }
+    }
+    if ($SelectName -and $CmbProject.Items.Contains($SelectName)) { $CmbProject.SelectedItem = $SelectName }
+    elseif ($CmbProject.Items.Count -gt 0 -and $null -eq $CmbProject.SelectedItem) { $CmbProject.SelectedIndex = 0 }
+}
+
+function Select-Folder {
+    param([string] $Description)
+    $dlg = [System.Windows.Forms.FolderBrowserDialog]::new()
+    $dlg.Description = $Description
+    $dlg.ShowNewFolderButton = $true
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.SelectedPath }
+    return $null
+}
+
+function Show-ProjectDialog {
+    # Mode 'Add' = 새 프로젝트 등록 (설정이 아예 없으면 기기·vault 까지 입력받는
+    # 최초 설정을 겸함). Mode 'Move' = 선택된 프로젝트의 worktree 경로 변경.
+    param([ValidateSet('Add', 'Move')] [string] $Mode)
+    $config = Get-AcConfig
+    $project = $null
+    if ($Mode -eq 'Move') {
+        $project = Get-SelectedProject
+        if (-not $project) { Set-Banner red '프로젝트를 선택하세요'; return }
+    }
+
+    $dlg = [Windows.Markup.XamlReader]::Parse($projectXaml)
+    $dlg.Owner = $window
+    $txtMachine = $dlg.FindName('TxtMachine'); $txtVault = $dlg.FindName('TxtVault')
+    $txtName = $dlg.FindName('TxtName'); $txtRemote = $dlg.FindName('TxtRemote')
+    $cmbAgent = $dlg.FindName('CmbAgent'); $txtPath = $dlg.FindName('TxtPath')
+    foreach ($a in @('codex', 'claude', 'none')) { $cmbAgent.Items.Add($a) | Out-Null }
+
+    if ($config) {
+        $txtMachine.Text = $config.machineId; $txtMachine.IsReadOnly = $true
+        $txtVault.Text = $config.vaultRemote; $txtVault.IsReadOnly = $true
+    }
+    if ($Mode -eq 'Move') {
+        $dlg.Title = "worktree 경로 변경 — $($project.name)"
+        $txtName.Text = $project.name; $txtName.IsReadOnly = $true
+        $txtRemote.Text = $project.projectRemote; $txtRemote.IsReadOnly = $true
+        $cmbAgent.SelectedItem = [string]$project.agent
+        $txtPath.Text = [string]$project.worktreePath
+        $dlg.FindName('BtnOk').Content = '경로 변경'
+    } else {
+        $cmbAgent.SelectedIndex = 0
+    }
+
+    $dlg.FindName('BtnPickPath').Add_Click({
+        $picked = Select-Folder -Description 'worktree 로 쓸 폴더 (빈 폴더 = 새 클론, 기존 클론 = 승격)'
+        if ($picked) { $txtPath.Text = $picked }
+    })
+    $dlg.FindName('BtnCancel').Add_Click({ $dlg.Close() })
+    $dlg.FindName('BtnOk').Add_Click({
+        foreach ($pair in @(@($txtMachine.Text, '기기 이름'), @($txtVault.Text, 'vault URL'),
+                @($txtName.Text, '프로젝트 이름'), @($txtRemote.Text, '프로젝트 저장소 URL'))) {
+            if (-not $pair[0].Trim()) { Set-Banner red "$($pair[1]) 을(를) 입력하세요"; return }
+        }
+        $setupArgs = @(
+            '-MachineId', $txtMachine.Text.Trim(), '-VaultRemote', $txtVault.Text.Trim(),
+            '-ProjectName', $txtName.Text.Trim(), '-ProjectRemote', $txtRemote.Text.Trim(),
+            '-Agent', [string]$cmbAgent.SelectedItem
+        )
+        if ($txtPath.Text.Trim()) { $setupArgs += @('-WorktreePath', $txtPath.Text.Trim()) }
+        $label = if ($Mode -eq 'Move') { 'worktree 경로 변경' } else { '프로젝트 등록' }
+        $targetName = $txtName.Text.Trim()
+        $dlg.Close()
+        Start-LauncherProcess -Label $label -ScriptRel 'bootstrap/Setup-AgentContinuity.ps1' `
+            -Arguments $setupArgs -NoProject -OnExit { param($code)
+                if ($code -eq 0) { Update-ProjectList -SelectName $targetName }
+            }.GetNewClosure()
+    })
+    $dlg.ShowDialog() | Out-Null
+}
+
+# ---------------------------------------------------------------------------
 # tray icon
 # ---------------------------------------------------------------------------
 
@@ -292,18 +426,15 @@ $tray.Add_DoubleClick({
 # wire up
 # ---------------------------------------------------------------------------
 
-$config = Get-AcConfig
-if ($config) {
-    foreach ($p in @($config.projects)) { $CmbProject.Items.Add($p.name) | Out-Null }
-    if ($ProjectName -and $CmbProject.Items.Contains($ProjectName)) { $CmbProject.SelectedItem = $ProjectName }
-    elseif ($CmbProject.Items.Count -gt 0) { $CmbProject.SelectedIndex = 0 }
-}
+Update-ProjectList -SelectName $ProjectName
 
 $CmbProject.Add_SelectionChanged({ Update-StatusPanel })
 $BtnRefresh.Add_Click({ Update-StatusPanel; Set-Banner gray '상태 갱신됨' })
 $BtnStart.Add_Click({ Start-LauncherProcess -Label '작업 시작' -ScriptRel 'launcher/Start-Work.ps1' -Arguments @() })
 $BtnFinish.Add_Click({ Start-LauncherProcess -Label '종료·인계' -ScriptRel 'launcher/Finish-Work.ps1' -Arguments @() })
 $BtnRecover.Add_Click({ Show-RecoveryDialog })
+$BtnAddProject.Add_Click({ Show-ProjectDialog -Mode Add })
+$BtnMoveWorktree.Add_Click({ Show-ProjectDialog -Mode Move })
 $BtnTray.Add_Click({
     $tray.Visible = $true
     $window.Hide()
@@ -322,5 +453,9 @@ $window.Add_Closing({
 })
 
 Update-StatusPanel
-Set-Banner gray '준비 — 정상 사용은 작업 시작 1회, 종료·인계 1회면 충분합니다'
+if (-not (Get-AcConfig)) {
+    Set-Banner yellow '설정이 없습니다 — [프로젝트 추가] 버튼으로 기기·vault·프로젝트를 등록하세요'
+} else {
+    Set-Banner gray '준비 — 정상 사용은 작업 시작 1회, 종료·인계 1회면 충분합니다'
+}
 $window.ShowDialog() | Out-Null
