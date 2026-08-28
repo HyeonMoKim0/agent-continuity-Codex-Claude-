@@ -5,6 +5,12 @@
 auth.json
 .credentials.json
 
+# installer build artifacts
+installer/payload.zip
+installer/*.syso
+installer/*.exe
+dist/
+
 # editor/os noise
 .vscode/
 .idea/

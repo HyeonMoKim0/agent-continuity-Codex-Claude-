@@ -11,6 +11,15 @@
 
 ## 설치 (배포판)
 
+**방법 A — 설치 프로그램 (권장)**: GitHub Releases 에서
+`AgentContinuity-Setup-vX.Y.Z.exe` 를 받아 더블클릭. 파일 설치, 의존성
+(git/PowerShell 7/age) winget 설치 안내, 바로가기 생성, UI 실행까지 한 번에
+처리합니다. 이미 설치된 상태에서 다시 실행하면 업데이트 후 실행됩니다.
+(코드 서명이 없어 SmartScreen 경고가 뜰 수 있습니다 — "추가 정보 → 실행".
+무결성은 함께 배포되는 .sha256 으로 확인할 수 있습니다.)
+
+**방법 B — 스크립트**:
+
 ```powershell
 # 1) GitHub Releases 에서 AgentContinuity-vX.Y.Z.zip 다운로드 후 압축 해제
 # 2) 해제한 폴더에서 (PowerShell 7 이 없어도 실행 가능):

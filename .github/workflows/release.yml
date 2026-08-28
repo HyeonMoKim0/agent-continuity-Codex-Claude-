@@ -38,12 +38,27 @@ jobs:
           rsync -a --exclude='.git' --exclude='.github' --exclude='dist' ./ dist/AgentContinuity/
           cd dist && zip -rq "AgentContinuity-${TAG}.zip" AgentContinuity
           sha256sum "AgentContinuity-${TAG}.zip" > "AgentContinuity-${TAG}.zip.sha256"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: installer/go.sum
+      - name: Build setup exe
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: installer/build.sh "${TAG}"
+      - name: Checksums
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: sha256sum "installer/AgentContinuity-Setup-${TAG}.exe" > "installer/AgentContinuity-Setup-${TAG}.exe.sha256"
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
         run: |
           gh release create "${TAG}" \
+            "installer/AgentContinuity-Setup-${TAG}.exe" \
+            "installer/AgentContinuity-Setup-${TAG}.exe.sha256" \
             "dist/AgentContinuity-${TAG}.zip" \
             "dist/AgentContinuity-${TAG}.zip.sha256" \
             --target "${GITHUB_SHA}" \
