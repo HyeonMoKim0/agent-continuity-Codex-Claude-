@@ -1,12 +1,13 @@
 // AgentContinuity-Setup.exe — 설치와 실행을 겸하는 단일 실행 파일 (배포 계획 D1 확장).
 //
 // 동작:
-//  1. 처음 실행: 설치 확인 → 내장 payload 를 %LOCALAPPDATA%\Programs\AgentContinuity 에 풀고
-//     의존성(git / PowerShell 7 / age)을 winget 으로 설치 안내 → 바로가기 생성 → UI 실행
+//  1. 처음 실행: 설치 확인 → 설치 위치 선택(기본 위치 또는 폴더 선택 대화상자) →
+//     내장 payload 를 풀고 의존성(git / PowerShell 7 / age)을 winget 으로 설치 안내 →
+//     바로가기 생성 → UI 실행. 선택한 경로는 기록되어 다음 실행이 찾아간다.
 //  2. 이후 실행(바로가기 포함): payload 를 최신으로 덮어쓴 뒤 곧바로 UI 실행 (자가 복구/업데이트)
 //
 // GUI 서브시스템(-H windowsgui)으로 빌드되어 콘솔 창이 뜨지 않으며, 안내는 MessageBox 로 한다.
-// 관리자 권한 불필요(asInvoker), 파일은 모두 사용자 프로필 아래에만 쓴다.
+// 관리자 권한 불필요(asInvoker), 파일은 사용자가 지정한 폴더에만 쓴다.
 //
 // 항상 GOOS=windows 로만 빌드한다.
 package main
@@ -33,12 +34,18 @@ var version = "dev" // -ldflags "-X main.version=vX.Y.Z"
 const appName = "Agent Continuity"
 
 // ---------------------------------------------------------------------------
-// MessageBox helpers (user32, 외부 의존성 없음)
+// Win32 helpers (user32 / shell32 / ole32, 외부 의존성 없음)
 // ---------------------------------------------------------------------------
 
 var (
-	user32     = syscall.NewLazyDLL("user32.dll")
-	messageBox = user32.NewProc("MessageBoxW")
+	user32       = syscall.NewLazyDLL("user32.dll")
+	shell32      = syscall.NewLazyDLL("shell32.dll")
+	ole32        = syscall.NewLazyDLL("ole32.dll")
+	messageBox   = user32.NewProc("MessageBoxW")
+	browseFolder = shell32.NewProc("SHBrowseForFolderW")
+	pathFromIDL  = shell32.NewProc("SHGetPathFromIDListW")
+	coInitEx     = ole32.NewProc("CoInitializeEx")
+	coTaskFree   = ole32.NewProc("CoTaskMemFree")
 )
 
 const (
@@ -48,6 +55,10 @@ const (
 	mbIconErr  = 0x10
 	mbIconQ    = 0x20
 	idYes      = 6
+
+	bifReturnOnlyFSDirs = 0x0001
+	bifNewDialogStyle   = 0x0040
+	maxPath             = 260
 )
 
 func msgBox(text string, flags uintptr) int {
@@ -57,17 +68,100 @@ func msgBox(text string, flags uintptr) int {
 	return int(r)
 }
 
-func info(text string)      { msgBox(text, mbOK|mbIconInfo) }
-func fail(text string)      { msgBox(text, mbOK|mbIconErr) }
+func info(text string)        { msgBox(text, mbOK|mbIconInfo) }
+func fail(text string)        { msgBox(text, mbOK|mbIconErr) }
 func askYes(text string) bool { return msgBox(text, mbYesNo|mbIconQ) == idYes }
 
+type browseInfo struct {
+	hwndOwner      uintptr
+	pidlRoot       uintptr
+	pszDisplayName *uint16
+	lpszTitle      *uint16
+	ulFlags        uint32
+	lpfn           uintptr
+	lParam         uintptr
+	iImage         int32
+}
+
+// pickFolder: Windows 폴더 선택 대화상자. 취소하면 "" 반환.
+func pickFolder(title string) string {
+	coInitEx.Call(0, 0x2 /* COINIT_APARTMENTTHREADED */)
+	display := make([]uint16, maxPath)
+	t, _ := syscall.UTF16PtrFromString(title)
+	bi := browseInfo{
+		pszDisplayName: &display[0],
+		lpszTitle:      t,
+		ulFlags:        bifReturnOnlyFSDirs | bifNewDialogStyle,
+	}
+	pidl, _, _ := browseFolder.Call(uintptr(unsafe.Pointer(&bi)))
+	if pidl == 0 {
+		return ""
+	}
+	defer coTaskFree.Call(pidl)
+	buf := make([]uint16, maxPath)
+	ok, _, _ := pathFromIDL.Call(pidl, uintptr(unsafe.Pointer(&buf[0])))
+	if ok == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf)
+}
+
+// ---------------------------------------------------------------------------
+// install location resolution
 // ---------------------------------------------------------------------------
 
-func installRoot() string {
+func defaultInstallRoot() string {
 	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "AgentContinuity")
 }
 
+// markerPath: 사용자 지정 설치 경로 기억 파일 (도구 상태 폴더와 같은 위치 계열).
+func markerPath() string {
+	return filepath.Join(os.Getenv("LOCALAPPDATA"), "AgentContinuity", "install-path.txt")
+}
+
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+func isInstallDir(p string) bool { return exists(filepath.Join(p, "AgentContinuity.psd1")) }
+
+// resolveInstallDir: (설치 폴더, 이미 설치되어 있었는지) 를 결정한다.
+func resolveInstallDir() (string, bool) {
+	// 1) 설치본 폴더 안에서 실행 중이면 그곳이 홈이다 (사용자 지정 경로 포함)
+	if self, err := os.Executable(); err == nil {
+		d := filepath.Dir(self)
+		if isInstallDir(d) {
+			return d, true
+		}
+	}
+	// 2) 이전 설치가 기록해 둔 경로
+	if data, err := os.ReadFile(markerPath()); err == nil {
+		p := strings.TrimSpace(string(data))
+		if p != "" && isInstallDir(p) {
+			return p, true
+		}
+	}
+	// 3) 기본 위치에 기존 설치가 있는지
+	if isInstallDir(defaultInstallRoot()) {
+		return defaultInstallRoot(), true
+	}
+	// 4) 신규 설치: 위치 선택
+	def := defaultInstallRoot()
+	if !askYes(appName + " 를 설치할까요?\n\n기본 설치 위치:\n" + def +
+		"\n\n[예] 기본 위치에 설치    [아니오] 설치할 폴더 직접 선택") {
+		picked := pickFolder("Agent Continuity 를 설치할 폴더를 선택하세요 (하위에 AgentContinuity 폴더가 생성됩니다)")
+		if picked == "" {
+			return "", false // 취소
+		}
+		return filepath.Join(picked, "AgentContinuity"), false
+	}
+	return def, false
+}
+
+func rememberInstallDir(dir string) {
+	_ = os.MkdirAll(filepath.Dir(markerPath()), 0o755)
+	_ = os.WriteFile(markerPath(), []byte(dir), 0o644)
+}
+
+// ---------------------------------------------------------------------------
 
 func extractPayload(dst string) error {
 	zr, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
@@ -188,14 +282,9 @@ func launchUI(dir string) error {
 }
 
 func main() {
-	dir := installRoot()
-	firstInstall := !exists(filepath.Join(dir, "AgentContinuity.psd1"))
-
-	if firstInstall {
-		if !askYes(appName + " 를 설치할까요?\n\n설치 위치: " + dir +
-			"\n(관리자 권한 불필요, 사용자 폴더에만 설치됩니다)") {
-			return
-		}
+	dir, alreadyInstalled := resolveInstallDir()
+	if dir == "" {
+		return // 사용자가 설치를 취소함
 	}
 
 	if err := extractPayload(dir); err != nil {
@@ -203,6 +292,7 @@ func main() {
 		return
 	}
 	copySelf(filepath.Join(dir, "AgentContinuity.exe"))
+	rememberInstallDir(dir)
 
 	_ = ensureDep("git", "Git", "Git.Git", false)
 	hasPwsh := ensureDep("pwsh", "PowerShell 7", "Microsoft.PowerShell", false)
@@ -210,8 +300,8 @@ func main() {
 
 	makeShortcuts(dir)
 
-	if firstInstall {
-		next := "설치 완료!\n\n다음 단계:\n" +
+	if !alreadyInstalled {
+		next := "설치 완료!\n\n설치 위치: " + dir + "\n\n다음 단계:\n" +
 			"1) 창이 열리면 프로젝트를 등록하세요 (Setup 마법사)\n" +
 			"2) 이후에는 바탕화면의 'Agent Continuity' 로 실행하면 됩니다"
 		if !hasPwsh {
