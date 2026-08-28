@@ -130,8 +130,36 @@ if ($push.Status -ne 'ok') {
 }
 Invoke-AcGit -RepoPath $worktree -Arguments @('reset', '--quiet', '--mixed', $projectHead) | Out-Null
 
-# --- 10. session snapshot: Phase 1 은 비활성 (§6.3-10) ------------------------
+# --- 10. session snapshot (Phase 3, §6.3-10) ---------------------------------
 $sessionCipherHash = $null
+$snapshotOk = $null
+if ([bool]$project.allowSessionSnapshot) {
+    if (-not (Test-AcCryptoEnabled)) {
+        Write-AcLog -Level WARN -Message '세션 스냅숏이 켜져 있지만 Phase 2 암호화가 비활성 상태입니다. Git 핸드오프로 강등합니다.'
+    } else {
+        $sinceUtc = [DateTime]::Parse($session.startedAt, $null, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+        $snap = New-AcSessionSnapshot -Project $project -SinceUtc $sinceUtc -Generation $generation
+        switch ($snap.Status) {
+            'ok' {
+                $sessionCipherHash = $snap.CipherHash
+                $snapshotOk = $snap
+                Write-Host "세션 스냅숏 push 완료 (session: $($snap.SessionId))"
+            }
+            'corrupt' {
+                Write-AcLog -Level WARN -Message "세션 JSONL 손상($($snap.Reason)) — 스냅숏 없이 Git 핸드오프로 계속합니다. 손상 사본은 암호화 보존됨."
+            }
+            { $_ -like 'skipped-*' } {
+                Write-AcLog -Level WARN -Message "세션 스냅숏 생략($($snap.Status)) — Git 핸드오프로 계속합니다."
+            }
+            default {
+                # vault push 실패는 인계 미완료 (§6.3-9..12 실패 규칙)
+                Show-AcAbort -Cause "세션 스냅숏 push 실패($($snap.Status)) — 인계 미완료" `
+                    -Preserved 'lease 유지, 로컬 세션 파일 무변경' -Recommended 'Finish 를 다시 실행하세요'
+                exit 9
+            }
+        }
+    }
+}
 
 # --- 11..12. complete transaction push (§6.3-11..12) -------------------------
 $record = New-AcTransactionRecord -ProjectId $projectId -Generation $generation `
@@ -157,6 +185,18 @@ if ($tip -ne $projectHead -or -not $verify.Record -or [int]$verify.Record.genera
     Show-AcAbort -Cause '원격 read-back 불일치 — 인계 미완료' `
         -Preserved 'lease 유지' -Recommended 'Show-Status.ps1 확인 후 Finish 재시도'
     exit 10
+}
+
+if ($snapshotOk) {
+    Save-AcSessionSyncState -ProjectId $projectId -State ([ordered]@{
+        agent                 = $snapshotOk.Agent
+        sessionId             = $snapshotOk.SessionId
+        relativePath          = $snapshotOk.RelativePath
+        lastAppliedFileSha256 = $snapshotOk.FileSha256
+        lastAppliedCipherHash = $snapshotOk.CipherHash
+        generation            = $generation
+        updatedAt             = Get-AcUtcNow
+    })
 }
 
 # --- 14..15. keeper stop → lease release → inactive (§6.3-14..15) ------------

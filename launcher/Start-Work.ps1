@@ -122,6 +122,26 @@ try {
                 -Preserved '로컬 worktree 유지' -Recommended 'Recover-Work.ps1 -Action PreserveOrphan 후 상태를 비교하세요'
             exit 5
         }
+
+        # --- session restore (Phase 3, §6.4-9..10): 실패는 Git 핸드오프로 강등 --
+        if ([bool]$project.allowSessionSnapshot) {
+            $restore = Restore-AcSessionSnapshot -Project $project -Record $lastTx.Record
+            switch ($restore.Status) {
+                'restored'   { Write-Host "세션 복원 완료: $($restore.Target)" }
+                'up-to-date' { Write-Host '세션이 이미 최신입니다.' }
+                'conflict' {
+                    Write-AcLog -Level WARN -Message "동일 세션의 로컬 파일이 더 새롭거나 알 수 없어 덮어쓰지 않았습니다. 보존: $($restore.RescueFile)"
+                    Write-Host '  자동 병합은 하지 않습니다. Git 핸드오프(CURRENT.md)로 계속 작업하세요.' -ForegroundColor Yellow
+                }
+                'degraded-version' {
+                    Write-AcLog -Level WARN -Message "CLI 버전($($restore['Version']))이 allowlist 에 없어 세션 복원을 생략했습니다 (Git 핸드오프로 계속)."
+                }
+                { $_ -in @('missing-cipher', 'cipher-mismatch', 'corrupt') } {
+                    Write-AcLog -Level WARN -Message "세션 스냅숏을 사용할 수 없습니다($($restore.Status)) — 로컬 세션은 건드리지 않았습니다."
+                }
+                default { Write-AcLog -Level INFO -Message "세션 복원 생략($($restore.Status))" }
+            }
+        }
     } else {
         # No transaction yet (fresh project): the worktree must already equal
         # the remote tip; nothing is applied.

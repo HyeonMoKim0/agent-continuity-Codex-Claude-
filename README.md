@@ -7,7 +7,7 @@
 
 전체 설계는 [docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md](docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md) 를 따릅니다.
 
-## 현재 구현 상태 — Phase 2 까지
+## 현재 구현 상태 — Phase 3 까지
 
 | 경로 | 상태 |
 |---|---|
@@ -20,7 +20,34 @@
 | 암호화 rescue bundle / 백업 + 자동 롤백 | ✅ Phase 2 |
 | stale lease `안전하게 인계받기` (takeover) | ✅ Phase 2 |
 | Claude Remote Control | 공식 기능 사용 (원본 PC가 켜져 있을 때만) |
-| CLI 세션 JSONL 복원 (Phase 3) | ⛔ 미활성 (`adapters/` stub) |
+| CLI 세션 JSONL 스냅숏·복원 (Codex/Claude) | 🧪 Phase 3 (실험, 프로젝트별 opt-in) |
+
+### Phase 3 사용법 (실험 기능)
+
+같은 CLI 대화 세션 자체를 다른 기기에서 이어가는 실험 기능입니다.
+Phase 2(암호화)가 켜진 뒤, 프로젝트별로 명시적으로 활성화해야 작동합니다.
+
+```powershell
+# 기기마다 1회: CLI 버전 감지 + 샘플 세션 검증 + allowlist 등록 + 활성화
+pwsh bootstrap/Enable-AgentContinuityPhase3.ps1 -ProjectName myproject
+# (해당 worktree 에서 아직 세션을 만든 적이 없으면 -SkipSampleCheck)
+
+# 끄기 (Git 핸드오프만 사용)
+pwsh bootstrap/Enable-AgentContinuityPhase3.ps1 -ProjectName myproject -Disable
+```
+
+활성화되면 `종료·인계`가 이번 세션의 JSONL 을 검증(마지막 행 완결성) 후
+암호화 번들로 vault `snapshots/` ref 에 push 하고, 완결 transaction 의
+`sessionCipherHash` 로 묶습니다. 다른 기기의 `작업 시작`은 그 정확한 번들만
+복호화·검증해 로컬 CLI 세션 디렉터리에 복원합니다.
+
+안전 규칙 (§8.3, 자동):
+- CLI 버전이 allowlist 에 없으면 복원·스냅숏을 생략하고 Git 핸드오프로 강등
+- 로컬 세션이 마지막 적용본보다 새롭거나 알 수 없으면 **덮어쓰지 않고**
+  암호화 conflict 번들로 보존 (동일 UUID 자동 병합 0건)
+- JSONL 손상(절단) 감지 시 스냅숏 생략 + 손상 사본 암호화 보존
+- 복원 전 로컬 세션은 항상 암호화 백업, 복원 후 hash·JSONL 재검사
+- 앱 내부 SQLite/DB 는 절대 건드리지 않음 — CLI 세션 파일만 다룸
 
 ### Phase 2 사용법
 

@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:AcRoot = Split-Path -Parent $PSScriptRoot
-foreach ($m in @('Common', 'Lease', 'Transaction', 'GitSafety', 'SecretScan', 'Backup', 'Crypto')) {
+foreach ($m in @('Common', 'Lease', 'Transaction', 'GitSafety', 'SecretScan', 'Backup', 'Crypto', 'SessionSync')) {
     Import-Module (Join-Path $script:AcRoot "core/$m.psm1") -Force -DisableNameChecking
 }
 foreach ($m in @('CodexCliAdapter', 'ClaudeCodeAdapter')) {

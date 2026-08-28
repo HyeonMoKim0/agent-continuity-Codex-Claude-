@@ -158,6 +158,37 @@ function Read-AcRefFile {
     return $r.Text
 }
 
+function Save-AcRefBlob {
+    # Byte-exact extraction of one blob from a vault commit into OutFile.
+    # (Piping git output through the PowerShell pipeline would corrupt binary
+    # data, so the process stdout stream is copied directly to the file.)
+    param(
+        [Parameter(Mandatory)][string] $CommitSha,
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $OutFile
+    )
+    $vault = Get-AcVaultPath
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = 'git'
+    foreach ($a in @('-C', $vault, 'cat-file', 'blob', "${CommitSha}:${Path}")) { $psi.ArgumentList.Add($a) }
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    try {
+        $fs = [System.IO.File]::Create($OutFile)
+        try { $proc.StandardOutput.BaseStream.CopyTo($fs) } finally { $fs.Dispose() }
+        $stderr = $proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        if ($proc.ExitCode -ne 0) {
+            Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            throw "blob 추출 실패: $stderr"
+        }
+    } finally {
+        $proc.Dispose()
+    }
+}
+
 function Get-AcRefTreePaths {
     param(
         [Parameter(Mandatory)][string] $CommitSha,
@@ -172,13 +203,15 @@ function Get-AcRefTreePaths {
 }
 
 function New-AcRefCommit {
-    # Builds a commit on top of ParentSha carrying Files (path -> content) and
-    # attempts a plain fast-forward push. Returns:
+    # Builds a commit on top of ParentSha carrying Files (path -> text content)
+    # and BinaryFiles (path -> local file to store byte-exact), then attempts a
+    # plain fast-forward push. Returns:
     #   @{Status='pushed'; Sha=...}     on success
     #   @{Status='contention'}          when another device won the CAS race
     param(
         [Parameter(Mandatory)][string] $RefName,
-        [Parameter(Mandatory)][hashtable] $Files,
+        [hashtable] $Files = @{},
+        [hashtable] $BinaryFiles = @{},
         [AllowNull()] [string] $ParentSha,
         [Parameter(Mandatory)][string] $Message
     )
@@ -203,6 +236,10 @@ function New-AcRefCommit {
             } finally {
                 Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
             }
+        }
+        foreach ($path in $BinaryFiles.Keys) {
+            $blob = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $vault -Arguments @('-c', 'core.autocrlf=false', 'hash-object', '-w', [string]$BinaryFiles[$path]))
+            Invoke-AcGit -RepoPath $vault -Arguments @('update-index', '--add', '--cacheinfo', "100644,$blob,$path") | Out-Null
         }
         $tree = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $vault -Arguments @('write-tree'))
         $commitArgs = @('commit-tree', $tree, '-m', $Message)
