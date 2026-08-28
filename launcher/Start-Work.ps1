@@ -24,8 +24,19 @@ $worktree = $project.worktreePath
 $preflight = Test-AcPreflight -Project $project
 if ($preflight.Dirty.Count -gt 0 -or $preflight.UnpushedAhead -gt 0) {
     $recovery = New-AcRecoveryBranch -Project $project -Label 'pre-start'
+    $preserved = "worktree 원본 유지, recovery branch: $($recovery.Branch)"
+    if (Test-AcCryptoEnabled) {
+        # Phase 2 (§6.4-2): additionally preserve the state as an encrypted
+        # rescue bundle before aborting.
+        try {
+            $rescue = New-AcRescueBundle -Project $project -Label 'pre-start'
+            $preserved += ", rescue bundle: $($rescue.BackupFile)"
+        } catch {
+            Write-AcLog -Level WARN -Message "rescue bundle 생성 실패(중단은 유지): $_"
+        }
+    }
     Show-AcAbort -Cause 'Finish 누락 추정: 로컬에 미전송 변경이 있습니다' `
-        -Preserved "worktree 원본 유지, recovery branch: $($recovery.Branch)" `
+        -Preserved $preserved `
         -Recommended "원래 이 변경을 만든 기기라면 '종료·인계'를 먼저 실행하세요 (또는 Recover-Work.ps1)"
     exit 2
 }

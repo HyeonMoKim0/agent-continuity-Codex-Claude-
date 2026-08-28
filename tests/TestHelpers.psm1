@@ -73,21 +73,23 @@ function Invoke-AcLauncher {
         [Parameter(Mandatory)] $Env,
         [Parameter(Mandatory)][string] $Device,
         [Parameter(Mandatory)][string] $Script,
-        [string[]] $Arguments = @()
+        [string[]] $Arguments = @(),
+        [hashtable] $ExtraEnv = @{}
     )
     if (-not $Env.Homes.ContainsKey($Device)) { throw "미초기화 기기: $Device" }
     $scriptPath = Join-Path $script:AcRoot $Script
     $psArgs = @('-NoProfile', '-NonInteractive', '-File', $scriptPath) + $Arguments
-    $old = $env:AGENT_CONTINUITY_HOME
-    $oldInterval = $env:AC_KEEPER_INTERVAL_SECONDS
+    $saved = @{}
+    $names = @('AGENT_CONTINUITY_HOME', 'AC_KEEPER_INTERVAL_SECONDS') + @($ExtraEnv.Keys)
+    foreach ($n in $names) { $saved[$n] = [Environment]::GetEnvironmentVariable($n) }
     try {
         $env:AGENT_CONTINUITY_HOME = $Env.Homes[$Device]
         $env:AC_KEEPER_INTERVAL_SECONDS = '5'
+        foreach ($k in $ExtraEnv.Keys) { [Environment]::SetEnvironmentVariable($k, [string]$ExtraEnv[$k]) }
         $output = & pwsh @psArgs 2>&1
         $code = $LASTEXITCODE
     } finally {
-        if ($null -ne $old) { $env:AGENT_CONTINUITY_HOME = $old } else { Remove-Item Env:AGENT_CONTINUITY_HOME -ErrorAction SilentlyContinue }
-        if ($null -ne $oldInterval) { $env:AC_KEEPER_INTERVAL_SECONDS = $oldInterval } else { Remove-Item Env:AC_KEEPER_INTERVAL_SECONDS -ErrorAction SilentlyContinue }
+        foreach ($n in $saved.Keys) { [Environment]::SetEnvironmentVariable($n, $saved[$n]) }
     }
     @{ ExitCode = $code; Output = ($output | ForEach-Object { "$_" }); Text = (($output | ForEach-Object { "$_" }) -join "`n") }
 }

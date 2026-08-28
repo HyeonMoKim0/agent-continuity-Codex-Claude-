@@ -5,9 +5,9 @@
 
 Set-StrictMode -Version Latest
 
-$script:LeaseDurationMinutes = 120
+$script:LeaseDurationMinutes = if ($env:AC_LEASE_DURATION_MINUTES) { [int]$env:AC_LEASE_DURATION_MINUTES } else { 120 }
 $script:HeartbeatIntervalSeconds = 600
-$script:TakeoverClockSkewMinutes = 5
+$script:TakeoverClockSkewMinutes = if ($null -ne $env:AC_LEASE_SKEW_MINUTES -and $env:AC_LEASE_SKEW_MINUTES -ne '') { [int]$env:AC_LEASE_SKEW_MINUTES } else { 5 }
 
 function Get-AcLockRefName {
     param([Parameter(Mandatory)][string] $ProjectId)
@@ -195,6 +195,36 @@ function Release-AcLease {
             -LeaseNonce $LeaseNonce -NewState 'released' -Message "lease release retry gen=$Generation"
     }
     return $result
+}
+
+function Invoke-AcLeaseTakeover {
+    # Phase 2 "안전하게 인계받기" (plan §5.4, §9.1). Only allowed when the
+    # current lease is expired past the clock-skew allowance AND the remote
+    # lock tip is unchanged between inspection and push (CAS). Writes a
+    # released lease at generation+1 owned by the taking machine; the taker
+    # then acquires a fresh lease through the normal Start path. Never touches
+    # an active, unexpired lease.
+    param(
+        [Parameter(Mandatory)][string] $ProjectId,
+        [Parameter(Mandatory)][string] $Branch,
+        [Parameter(Mandatory)][string] $MachineId,
+        [Parameter(Mandatory)][string] $BaseProjectCommit
+    )
+    $current = Get-AcLease -ProjectId $ProjectId
+    $lease = $current.Lease
+    if (-not $lease) { return @{ Status = 'no-lease' } }
+    if ($lease.state -ne 'active') { return @{ Status = 'not-needed'; Lease = $lease } }
+    if ($lease.machineId -eq $MachineId) { return @{ Status = 'own-lease'; Lease = $lease } }
+    if (-not (Test-AcLeaseExpired -Lease $lease)) { return @{ Status = 'still-active'; Lease = $lease } }
+
+    $record = New-AcLeaseRecord -ProjectId $ProjectId -Branch $Branch -MachineId $MachineId `
+        -Agent 'none' -SessionId ("takeover-" + (New-AcNonce).Substring(0, 12)) `
+        -Generation ([int]$lease.generation + 1) -BaseProjectCommit $BaseProjectCommit -State 'released'
+    $push = Push-AcLeaseCommit -ProjectId $ProjectId -Record $record -ParentSha $current.TipSha `
+        -Message "lease takeover gen=$($record.generation) by $MachineId (stale owner: $($lease.machineId))"
+    if ($push.Status -eq 'pushed') { return @{ Status = 'ok'; StaleLease = $lease } }
+    if ($push.Status -eq 'contention') { return @{ Status = 'contention'; Detail = $push.Detail } }
+    return @{ Status = 'error'; Detail = $push.Detail }
 }
 
 function Start-AcKeeper {

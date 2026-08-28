@@ -7,17 +7,53 @@
 
 전체 설계는 [docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md](docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md) 를 따릅니다.
 
-## 현재 구현 상태 — Phase 1 (Git 핸드오프 MVP)
+## 현재 구현 상태 — Phase 2 까지
 
 | 경로 | 상태 |
 |---|---|
-| Git 핸드오프 (코드 + `CURRENT.md` 인계) | ✅ 구현됨 (이 저장소) |
-| 원격 단일 작성자 lease (CAS, fast-forward push) | ✅ 구현됨 |
-| 완결 transaction (부분 push 무시) | ✅ 구현됨 |
-| secret scan / allowlist / 크기 한도 | ✅ 구현됨 |
+| Git 핸드오프 (코드 + `CURRENT.md` 인계) | ✅ Phase 1 |
+| 원격 단일 작성자 lease (CAS, fast-forward push) | ✅ Phase 1 |
+| 완결 transaction (부분 push 무시) | ✅ Phase 1 |
+| secret scan / allowlist / 크기 한도 | ✅ Phase 1 |
+| age 다중 수신자 암호화 (기기 키 + 오프라인 복구키) | ✅ Phase 2 |
+| 개인키 보호 (Windows DPAPI) | ✅ Phase 2 |
+| 암호화 rescue bundle / 백업 + 자동 롤백 | ✅ Phase 2 |
+| stale lease `안전하게 인계받기` (takeover) | ✅ Phase 2 |
 | Claude Remote Control | 공식 기능 사용 (원본 PC가 켜져 있을 때만) |
-| age 암호화·키 관리 (Phase 2) | ⛔ 미활성 (`core/Crypto.psm1` stub) |
 | CLI 세션 JSONL 복원 (Phase 3) | ⛔ 미활성 (`adapters/` stub) |
+
+### Phase 2 사용법
+
+```powershell
+# 기기당 1회 (Setup 이후): identity 생성·보호 + 수신자 등록 + 자가 시험
+pwsh bootstrap/Enable-AgentContinuityPhase2.ps1
+
+# 오프라인 복구키 생성 (비밀키는 1회만 표시 — USB/종이에 보관, Git 금지)
+pwsh bootstrap/Enable-AgentContinuityPhase2.ps1 -GenerateRecoveryKey
+
+# 수신자 목록 / 분실 기기 제거
+pwsh bootstrap/Enable-AgentContinuityPhase2.ps1 -ListRecipients
+pwsh bootstrap/Enable-AgentContinuityPhase2.ps1 -RemoveRecipient laptop-main
+
+# 원본 PC를 쓸 수 없을 때, 만료된 lease 를 안전하게 인수 (§9.1)
+pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action Takeover -Force
+
+# 암호화 백업 관리
+pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action ListBackups
+pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action VerifyBackup -BackupFile <path.age>
+pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action RestoreBackup -BackupFile <path.age> -Force
+```
+
+Phase 2 요구 사항: [age](https://github.com/FiloSottile/age) (`winget install FiloSottile.age`).
+
+보안 노트:
+- 개인키는 Windows 에서 DPAPI(CurrentUser)로 보호됩니다. 비 Windows 에서는
+  AES 키파일(0600) 폴백을 사용하며 이는 개발·테스트용입니다.
+- age CLI 는 identity 를 파일로만 받으므로, 복호화 순간에만 잠금 임시 디렉터리에
+  임시 identity 파일을 만들고 사용 직후 덮어쓰기 후 삭제합니다 (§7.2 원칙의
+  최소 예외).
+- 수신자 제거는 다음 백업부터 적용됩니다. 분실 기기가 이미 받은 과거 암호문은
+  회수할 수 없으므로 GitHub 인증 폐기를 병행하세요 (§7.5).
 
 ## 요구 사항
 
