@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-continuity/transaction.schema.json",
+  "title": "Agent Continuity complete transaction record",
+  "description": "Stored as transactions/<project-id>/<generation>.json on refs/heads/sync/<project-id>. Freshness comes from parentTransactionHash → generation → projectHead linkage; createdAt is display-only (plan §6.2).",
+  "type": "object",
+  "required": [
+    "schemaVersion", "projectId", "generation", "parentTransactionHash",
+    "sourceMachineId", "agent", "sourceSessionId", "projectRemote",
+    "projectBranch", "projectHead", "expectedProjectParent",
+    "sessionCipherHash", "sourceAppVersion", "createdAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "projectId": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "generation": { "type": "integer", "minimum": 1 },
+    "parentTransactionHash": {
+      "oneOf": [ { "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" } ]
+    },
+    "sourceMachineId": { "type": "string", "minLength": 1 },
+    "agent": { "type": "string", "enum": ["codex", "claude", "none"] },
+    "sourceSessionId": { "type": "string", "minLength": 1 },
+    "projectRemote": { "type": "string", "minLength": 1 },
+    "projectBranch": { "type": "string", "minLength": 1 },
+    "projectHead": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+    "expectedProjectParent": {
+      "oneOf": [ { "type": "string", "pattern": "^[0-9a-f]{40,64}$" }, { "type": "null" } ]
+    },
+    "sessionCipherHash": {
+      "oneOf": [ { "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" } ]
+    },
+    "sourceAppVersion": { "type": "string" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

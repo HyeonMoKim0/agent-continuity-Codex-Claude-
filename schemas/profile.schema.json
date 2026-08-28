@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-continuity/profile.schema.json",
+  "title": "Agent Continuity project profile",
+  "description": "Fixes the automatic staging boundary for one project (plan §4.2).",
+  "type": "object",
+  "required": ["allowedGlobs", "excludedGlobs", "trackedOnly", "maxDiffSizeBytes"],
+  "additionalProperties": false,
+  "properties": {
+    "allowedGlobs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "excludedGlobs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "trackedOnly": { "type": "boolean" },
+    "maxDiffSizeBytes": { "type": "integer", "minimum": 1 }
+  }
+}

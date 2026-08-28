@@ -1,0 +1,102 @@
+# Agent Continuity
+
+> One-click, fail-closed cross-device handoff for Codex and Claude workflows.
+
+데스크톱과 노트북 사이에서 Codex·Claude 작업을 안전하게 이어가는 도구입니다.
+정상 사용은 **`작업 시작` 1회 클릭 → 작업 → `종료·인계` 1회 클릭**으로 끝납니다.
+
+전체 설계는 [docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md](docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md) 를 따릅니다.
+
+## 현재 구현 상태 — Phase 1 (Git 핸드오프 MVP)
+
+| 경로 | 상태 |
+|---|---|
+| Git 핸드오프 (코드 + `CURRENT.md` 인계) | ✅ 구현됨 (이 저장소) |
+| 원격 단일 작성자 lease (CAS, fast-forward push) | ✅ 구현됨 |
+| 완결 transaction (부분 push 무시) | ✅ 구현됨 |
+| secret scan / allowlist / 크기 한도 | ✅ 구현됨 |
+| Claude Remote Control | 공식 기능 사용 (원본 PC가 켜져 있을 때만) |
+| age 암호화·키 관리 (Phase 2) | ⛔ 미활성 (`core/Crypto.psm1` stub) |
+| CLI 세션 JSONL 복원 (Phase 3) | ⛔ 미활성 (`adapters/` stub) |
+
+## 요구 사항
+
+- Windows 10/11 (기준 플랫폼) 또는 Linux/macOS (PowerShell 7 이상)
+- git 2.30+, GitHub 비공개 저장소 2개
+  - 프로젝트 저장소 (코드 + `docs/agent-handoff/`)
+  - **vault** 저장소 (`agent-continuity` 전용 비공개 저장소: lease/transaction ref 보관)
+- vault 저장소의 `locks/*`, `sync/*` 브랜치에는 force push·삭제를 금지하는
+  branch protection 을 적용하세요 (plan §5.4).
+
+## 설치 (기기당 1회)
+
+```powershell
+pwsh bootstrap/Setup-AgentContinuity.ps1 `
+  -MachineId desktop-main `
+  -VaultRemote https://github.com/<you>/agent-continuity-vault.git `
+  -ProjectName myproject `
+  -ProjectRemote https://github.com/<you>/myproject.git `
+  -Agent codex
+```
+
+수행 내용: 전용 continuity worktree 생성(`§4.2`), 작업 브랜치(`continuity/work`) 준비,
+`docs/agent-handoff/` 시드(CURRENT/DECISIONS/OPEN-QUESTIONS), profile 기본값 저장,
+Windows 에서는 바탕화면 바로가기 3종 생성, 마지막에 자가진단 실행.
+
+## 일상 사용
+
+```powershell
+# 작업 시작 (또는 바로가기 클릭)
+pwsh launcher/Start-Work.ps1 -ProjectName myproject
+
+# ... 에이전트와 작업, CURRENT.md 를 최신으로 유지 ...
+
+# 종료·인계 (또는 바로가기 클릭)
+pwsh launcher/Finish-Work.ps1 -ProjectName myproject
+```
+
+- Start: 읽기 전용 사전 검사 → 원격 lease 획득 → **마지막 완결 transaction 의
+  정확한 `projectHead`** 로만 fast-forward → keeper 시작 → CURRENT.md 표시 → 에이전트 실행.
+- Finish: 에이전트 graceful stop → profile 경계(staging allowlist) → secret scan →
+  단일 `projectHead` commit → CAS push → 완결 transaction push → 원격 read-back →
+  lease 해제. **어느 단계든 실패하면 lease 를 유지한 채 fail-closed 로 중단합니다.**
+- 예외 화면은 항상 원인 · 보존 위치 · 권장 행동 1가지를 보여줍니다 (§3.3).
+
+보조 도구:
+
+```powershell
+pwsh launcher/Show-Status.ps1 -ProjectName myproject          # 상태 확인
+pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action LeaseInfo|PreserveOrphan|BackToLastTransaction|ReleaseRetry|Diagnostics
+```
+
+## 하지 않는 것 (plan §2.4, §17)
+
+- 자동 force push / rebase / merge — 없음
+- 동일 session ID 양쪽 변경의 자동 병합 — 없음 (fork 보존)
+- 인증 파일·토큰·개인키의 Git 운반 — 금지 (secret scan 이 차단)
+- 앱 내부 SQLite/DB 수정 — 금지
+- 두 PC 동시 작업 — 원격 lease 가 차단
+
+## 저장소 구조
+
+```text
+bootstrap/   Setup-AgentContinuity.ps1, Test-AgentContinuity.ps1
+launcher/    Start-Work.ps1, Finish-Work.ps1, Show-Status.ps1, Recover-Work.ps1, Invoke-LeaseKeeper.ps1
+core/        Common, Lease, Transaction, GitSafety, SecretScan, Crypto(stub), Backup
+adapters/    CodexCliAdapter, ClaudeCodeAdapter  (Phase 3 까지 세션 복원 비활성)
+schemas/     profile / lease / transaction JSON Schema
+templates/   CURRENT.md, DECISIONS.md, OPEN-QUESTIONS.md
+tests/       unit / integration (자체 경량 러너, Pester 불필요)
+docs/plan/   승인된 계획서 v2
+```
+
+## 테스트
+
+```powershell
+pwsh tests/Run-Tests.ps1            # 전체 (unit + 두 기기 통합 시나리오)
+pwsh tests/Run-Tests.ps1 -Scope unit
+```
+
+통합 테스트는 로컬 bare 저장소 2개(vault + project)와 기기별 홈 2개를 만들어
+데스크톱↔노트북 왕복 10회, 동시 Start 경쟁, secret canary 차단, dirty 중단,
+외부 commit 전진(remote branch advanced) 감지를 검증합니다 (plan §13).

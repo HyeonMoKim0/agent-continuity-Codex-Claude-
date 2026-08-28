@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-continuity/lease.schema.json",
+  "title": "Agent Continuity remote single-writer lease",
+  "description": "Stored as lease.json on refs/heads/locks/<project-id> (plan §5.2).",
+  "type": "object",
+  "required": [
+    "schemaVersion", "projectId", "branch", "machineId", "agent", "sessionId",
+    "generation", "leaseNonce", "state", "baseProjectCommit",
+    "acquiredAt", "heartbeatAt", "expiresAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "projectId": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "branch": { "type": "string", "minLength": 1 },
+    "machineId": { "type": "string", "minLength": 1 },
+    "agent": { "type": "string", "enum": ["codex", "claude", "none"] },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "generation": { "type": "integer", "minimum": 1 },
+    "leaseNonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "state": { "type": "string", "enum": ["active", "released"] },
+    "baseProjectCommit": { "type": "string", "minLength": 1 },
+    "acquiredAt": { "type": "string", "format": "date-time" },
+    "heartbeatAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

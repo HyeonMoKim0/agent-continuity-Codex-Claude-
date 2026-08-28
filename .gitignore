@@ -1,0 +1,12 @@
+# local state must never be committed (plan §2.4: no credentials/keys in git)
+*.dpapi
+*.age
+.env*
+auth.json
+.credentials.json
+
+# editor/os noise
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
