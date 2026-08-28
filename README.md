@@ -106,6 +106,26 @@ pwsh bootstrap/Setup-AgentContinuity.ps1 `
 `docs/agent-handoff/` 시드(CURRENT/DECISIONS/OPEN-QUESTIONS), profile 기본값 저장,
 Windows 에서는 바탕화면 바로가기 3종 생성, 마지막에 자가진단 실행.
 
+## 편의성 UI (Windows)
+
+바탕화면의 `Agent Continuity` 바로가기(또는 아래 명령)로 창 하나에서 모든
+일상 작업을 처리할 수 있습니다:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File ui\AgentContinuity-Ui.ps1
+```
+
+- 프로젝트 드롭다운 + 상태 요약(lease 소유/keeper/마지막 generation/dirty)
+- 큰 버튼 두 개: **작업 시작** / **종료·인계** — 내부적으로 launcher 스크립트를
+  그대로 실행하므로 모든 안전 규칙이 동일하게 적용됩니다
+- 실행 로그와 결과 배너(초록=완료, 빨강=중단+원인·보존·권장 행동)
+- **복구 센터** 다이얼로그: lease 조회, orphan 보존, 마지막 transaction 복귀,
+  백업 검증·복원, 안전하게 인계받기(Takeover)
+- 트레이 최소화: 인계 진행 중 창을 닫아도 작업은 강제 종료되지 않고 트레이에서
+  계속 실행됩니다
+- 가상/보조 기기는 `AGENT_CONTINUITY_HOME` 을 설정한 창에서 UI 를 실행하면
+  해당 기기로 동작합니다
+
 ## 일상 사용
 
 ```powershell

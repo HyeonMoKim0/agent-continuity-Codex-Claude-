@@ -137,7 +137,12 @@ if ($IsWindows -and -not $SkipShortcuts) {
         $lnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $root $e.Script)`" -ProjectName `"$ProjectName`""
         $lnk.Save()
     }
-    Write-Host '바탕화면 바로가기를 생성했습니다.'
+    # 편의성 UI: 프로젝트 공용 창 앱 (버튼으로 시작/인계/복구)
+    $uiLnk = $shell.CreateShortcut((Join-Path $desktop 'Agent Continuity.lnk'))
+    $uiLnk.TargetPath = 'pwsh.exe'
+    $uiLnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $root 'ui/AgentContinuity-Ui.ps1')`""
+    $uiLnk.Save()
+    Write-Host '바탕화면 바로가기를 생성했습니다 (Agent Continuity UI 포함).'
 }
 
 # 9. 자가진단
