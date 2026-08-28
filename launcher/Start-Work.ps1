@@ -21,7 +21,12 @@ $projectId = $project.projectId
 $worktree = $project.worktreePath
 
 # --- 1. read-only preflight, before any lease is touched (§6.4-1..2) ---------
-$preflight = Test-AcPreflight -Project $project
+# profile 을 넘겨 allowedGlobs 안의 변경만 차단 사유로 삼는다: 무관한 파일은
+# 자동 커밋도, fast-forward 덮어쓰기도 되지 않으므로 안전하게 무시된다.
+$preflight = Test-AcPreflight -Project $project -ProjectProfile (Get-AcProjectProfile -Project $project)
+if ($preflight.UnrelatedDirty -gt 0) {
+    Write-Host "참고: 인계 대상이 아닌 변경 $($preflight.UnrelatedDirty)개는 무시합니다 (allowedGlobs 밖)."
+}
 if ($preflight.Dirty.Count -gt 0 -or $preflight.UnpushedAhead -gt 0) {
     $recovery = New-AcRecoveryBranch -Project $project -Label 'pre-start'
     $preserved = "worktree 원본 유지, recovery branch: $($recovery.Branch)"

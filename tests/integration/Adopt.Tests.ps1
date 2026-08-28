@@ -55,6 +55,34 @@ try {
         $tree = (& git -C $userClone ls-tree -r --name-only HEAD) -join "`n"
         Assert-AcTrue ($tree -match 'src/from-adopted\.txt') '승격 폴더의 변경이 인계됨'
     }
+    Invoke-AcTest '무관한 dirty 파일은 Start 를 막지 않고, 인계에도 포함되지 않음' {
+        $userClone = Join-Path $testEnv.Base 'my-usual-folder/testproj'
+        Set-Content (Join-Path $userClone 'junk-outside-allowlist.bin') 'unity library junk' -Encoding utf8
+        $start = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Start-Work.ps1' -Arguments @('-ProjectName', 'testproj', '-NoAgent')
+        Assert-AcEqual 0 $start.ExitCode "unrelated-dirty start: $($start.Text)"
+        Assert-AcTrue ($start.Text -match '인계 대상이 아닌 변경 1개는 무시') '무관 변경 안내'
+        $finish = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Finish-Work.ps1' -Arguments @('-ProjectName', 'testproj')
+        Assert-AcEqual 0 $finish.ExitCode
+        $tree = (& git -C $userClone ls-tree -r --name-only HEAD) -join "`n"
+        Assert-AcTrue ($tree -notmatch 'junk-outside-allowlist') '무관 파일 미커밋'
+        Assert-AcTrue (Test-Path (Join-Path $userClone 'junk-outside-allowlist.bin')) '무관 파일 보존'
+    }
+
+    Invoke-AcTest 'dirty 클론에도 새 작업 브랜치 승격 가능 (checkout -b 는 파일 무변경)' {
+        # 실제 사용 사례: untracked 파일이 수천 개인 프로젝트 폴더를 승격.
+        # 새 브랜치 생성은 워킹트리를 건드리지 않으므로 dirty 여도 허용된다.
+        $userClone = Join-Path $testEnv.Base 'my-usual-folder/testproj'
+        $setup = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'bootstrap/Setup-AgentContinuity.ps1' -Arguments @(
+            '-MachineId', 'desktop-main', '-VaultRemote', $testEnv.VaultRemote,
+            '-ProjectName', 'testproj-b2', '-ProjectRemote', $testEnv.ProjectRemote,
+            '-WorkBranch', 'continuity/work2',
+            '-Agent', 'none', '-SkipShortcuts', '-WorktreePath', $userClone)
+        Assert-AcEqual 0 $setup.ExitCode "dirty adopt: $($setup.Text)"
+        Assert-AcTrue ($setup.Text -match '전용 worktree 로 승격')
+        $branch = (& git -C $userClone rev-parse --abbrev-ref HEAD).Trim()
+        Assert-AcEqual 'continuity/work2' $branch '새 브랜치로 전환됨'
+        Assert-AcTrue (Test-Path (Join-Path $userClone 'junk-outside-allowlist.bin')) 'dirty 파일 무변경'
+    }
 } finally {
     Remove-AcTestEnvironment -Env $testEnv
 }

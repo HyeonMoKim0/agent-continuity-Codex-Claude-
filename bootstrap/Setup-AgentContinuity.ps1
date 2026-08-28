@@ -61,18 +61,23 @@ if (Test-Path (Join-Path $worktree '.git')) {
     }
     $currentBranch = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')).Text.Trim()
     if ($currentBranch -ne $WorkBranch) {
-        $dirtyNow = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain')).Output | Where-Object { $_ })
-        if ($dirtyNow.Count -gt 0) {
-            throw "승격 불가: '$WorkBranch' 브랜치로 전환해야 하지만 커밋되지 않은 변경이 $($dirtyNow.Count)개 있습니다. 먼저 commit/stash 로 정리하세요 (자동으로 건드리지 않습니다)."
-        }
         Invoke-AcGit -RepoPath $worktree -Arguments @('fetch', 'origin') | Out-Null
         $hasLocal = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', '--verify', '--quiet', "refs/heads/$WorkBranch") -AllowFail).ExitCode -eq 0
         $hasRemote = [bool](Invoke-AcGit -RepoPath $worktree -Arguments @('ls-remote', 'origin', "refs/heads/$WorkBranch")).Text.Trim()
-        if ($hasLocal) {
-            Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', $WorkBranch) | Out-Null
-        } elseif ($hasRemote) {
-            Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', '-b', $WorkBranch, "origin/$WorkBranch") | Out-Null
+        if ($hasLocal -or $hasRemote) {
+            # 기존 브랜치로의 전환은 파일이 바뀔 수 있으므로 클린 상태를 요구한다.
+            $dirtyNow = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain')).Output | Where-Object { $_ })
+            if ($dirtyNow.Count -gt 0) {
+                throw "승격 불가: 기존 '$WorkBranch' 브랜치로 전환해야 하지만 커밋되지 않은 변경이 $($dirtyNow.Count)개 있습니다. 먼저 commit/stash 로 정리하세요 (자동으로 건드리지 않습니다)."
+            }
+            if ($hasLocal) {
+                Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', $WorkBranch) | Out-Null
+            } else {
+                Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', '-b', $WorkBranch, "origin/$WorkBranch") | Out-Null
+            }
         } else {
+            # 새 작업 브랜치 생성은 워킹트리 파일을 전혀 건드리지 않으므로
+            # dirty 여부와 무관하게 안전하다 (현재 HEAD 에서 분기).
             Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', '-b', $WorkBranch) | Out-Null
         }
     }

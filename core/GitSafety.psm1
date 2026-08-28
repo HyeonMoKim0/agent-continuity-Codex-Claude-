@@ -16,13 +16,20 @@ function Get-AcRemoteBranchTip {
 }
 
 function Test-AcPreflight {
-    # Read-only checks before any lease is taken (plan §6.4-1).
-    param([Parameter(Mandatory)] $Project)
+    # Read-only checks before any lease is taken (plan §6.4-1). When a profile
+    # is provided, only changes inside allowedGlobs count as blocking "미전송
+    # 변경" — unrelated files are never auto-committed nor overwritten by the
+    # fast-forward apply, so they are reported (UnrelatedDirty) but don't block
+    # (§3.4: 일반 작업 폴더의 무관 변경 보호).
+    param(
+        [Parameter(Mandatory)] $Project,
+        [AllowNull()] $ProjectProfile = $null
+    )
     $issues = [System.Collections.Generic.List[string]]::new()
     $worktree = $Project.worktreePath
 
     if (-not (Test-Path (Join-Path $worktree '.git'))) {
-        return [pscustomobject]@{ Ok = $false; Issues = @("전용 worktree 가 없음: $worktree"); Dirty = @(); LocalHead = $null; RemoteTip = $null; UnpushedAhead = 0 }
+        return [pscustomobject]@{ Ok = $false; Issues = @("전용 worktree 가 없음: $worktree"); Dirty = @(); UnrelatedDirty = 0; LocalHead = $null; RemoteTip = $null; UnpushedAhead = 0 }
     }
     $remote = (Invoke-AcGit -RepoPath $worktree -Arguments @('remote', 'get-url', 'origin')).Text.Trim()
     if ($remote -ne $Project.projectRemote) {
@@ -32,7 +39,23 @@ function Test-AcPreflight {
     if ($branch -ne $Project.workBranch) {
         $issues.Add("현재 브랜치 불일치: 등록=$($Project.workBranch) 실제=$branch")
     }
-    $dirty = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain', '--no-renames')).Output | Where-Object { $_ })
+    $dirtyAll = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain', '--no-renames')).Output | Where-Object { $_ })
+    $unrelated = 0
+    if ($ProjectProfile) {
+        $allowed = @($ProjectProfile.allowedGlobs)
+        $excluded = @($ProjectProfile.excludedGlobs)
+        $dirty = @()
+        foreach ($entry in $dirtyAll) {
+            $path = $entry.Substring(3).Trim('"')
+            if ((Test-AcGlobMatch -Path $path -Globs $allowed) -and -not (Test-AcGlobMatch -Path $path -Globs $excluded)) {
+                $dirty += $entry
+            } else {
+                $unrelated++
+            }
+        }
+    } else {
+        $dirty = $dirtyAll
+    }
     $localHead = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', 'HEAD') -AllowFail)
     $headSha = if ($localHead.ExitCode -eq 0) { $localHead.Text.Trim() } else { $null }
 
@@ -45,12 +68,13 @@ function Test-AcPreflight {
         if ($ahead -gt 0) { $issues.Add("로컬에 미전송 commit $ahead 개 존재 (Finish 누락 의심)") }
     }
     [pscustomobject]@{
-        Ok            = ($issues.Count -eq 0 -and $dirty.Count -eq 0)
-        Issues        = @($issues)
-        Dirty         = $dirty
-        LocalHead     = $headSha
-        RemoteTip     = $remoteTip
-        UnpushedAhead = $ahead
+        Ok             = ($issues.Count -eq 0 -and $dirty.Count -eq 0)
+        Issues         = @($issues)
+        Dirty          = @($dirty)
+        UnrelatedDirty = $unrelated
+        LocalHead      = $headSha
+        RemoteTip      = $remoteTip
+        UnpushedAhead  = $ahead
     }
 }
 

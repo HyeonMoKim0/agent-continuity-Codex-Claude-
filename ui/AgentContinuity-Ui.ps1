@@ -43,7 +43,7 @@ $xaml = @'
     </Grid.RowDefinitions>
 
     <DockPanel Grid.Row="0" Margin="0,0,0,8">
-      <TextBlock Text="프로젝트:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <TextBlock Text="대상 프로젝트 (버튼이 적용될 대상):" VerticalAlignment="Center" Margin="0,0,8,0"/>
       <Button x:Name="BtnRefresh" Content="상태 새로고침" DockPanel.Dock="Right" Padding="10,4" Margin="8,0,0,0"/>
       <ComboBox x:Name="CmbProject" VerticalAlignment="Center"/>
     </DockPanel>
@@ -162,31 +162,51 @@ function Get-SelectedProject {
     $config.projects | Where-Object { $_.name -eq [string]$CmbProject.SelectedItem }
 }
 
-function Update-StatusPanel {
-    $project = Get-SelectedProject
-    if (-not $project) { $TxtStatus.Text = '등록된 프로젝트가 없습니다. Setup-AgentContinuity.ps1 을 먼저 실행하세요.'; return }
-    $config = Get-AcConfig
-    $lines = [System.Collections.Generic.List[string]]::new()
-    $lines.Add("기기: $($config.machineId)   worktree: $($project.worktreePath)")
+function Get-ProjectStatusLine {
+    # 한 프로젝트의 한 줄 요약: 병렬로 여러 worktree 를 감시하는 뷰의 행.
+    param([Parameter(Mandatory)] $Project)
     try {
-        $leaseInfo = Get-AcLease -ProjectId $project.projectId
-        if ($leaseInfo.Lease) {
-            $lease = $leaseInfo.Lease
-            $expired = if (Test-AcLeaseExpired -Lease $lease) { ' (만료)' } else { '' }
-            $lines.Add("lease : $($lease.state)$expired · 소유=$($lease.machineId) · gen=$($lease.generation)")
-        } else { $lines.Add('lease : 없음') }
-        $keeper = if (Test-AcKeeperAlive -ProjectId $project.projectId) { '실행 중' } else { '없음' }
-        $lines.Add("keeper: $keeper")
-        $lastTx = Get-AcLastTransaction -ProjectId $project.projectId
-        if ($lastTx.Record) {
-            $lines.Add("마지막 완결 transaction: gen=$($lastTx.Record.generation) · 기기=$($lastTx.Record.sourceMachineId)")
-        } else { $lines.Add('마지막 완결 transaction: 없음 (초기 상태)') }
-        if (Test-Path (Join-Path $project.worktreePath '.git')) {
-            $dirty = @((Invoke-AcGit -RepoPath $project.worktreePath -Arguments @('status', '--porcelain')).Output | Where-Object { $_ })
-            $lines.Add("dirty : $($dirty.Count) 개 파일")
+        $leaseInfo = Get-AcLease -ProjectId $Project.projectId
+        $leaseText = '유휴'
+        if ($leaseInfo.Lease -and $leaseInfo.Lease.state -eq 'active') {
+            $expired = if (Test-AcLeaseExpired -Lease $leaseInfo.Lease) { ' 만료' } else { '' }
+            $leaseText = "작업 중($($leaseInfo.Lease.machineId)$expired)"
         }
+        $keeper = if (Test-AcKeeperAlive -ProjectId $Project.projectId) { '●' } else { '○' }
+        $lastTx = Get-AcLastTransaction -ProjectId $Project.projectId
+        $gen = if ($lastTx.Record) { "gen=$($lastTx.Record.generation)" } else { '초기' }
+        $sessionMark = if ([bool]$Project.allowSessionSnapshot) { " · 세션동기화:$($Project.agent)" } else { '' }
+        return "[$($Project.name)] $leaseText · keeper $keeper · $gen$sessionMark"
     } catch {
-        $lines.Add("상태 조회 오류: $_")
+        return "[$($Project.name)] 상태 조회 오류: $_"
+    }
+}
+
+function Update-StatusPanel {
+    $config = Get-AcConfig
+    if (-not $config -or @($config.projects).Count -eq 0) {
+        $TxtStatus.Text = '등록된 프로젝트가 없습니다. [프로젝트 추가] 버튼으로 등록하세요.'
+        return
+    }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("기기: $($config.machineId) — 전체 프로젝트 ($(@($config.projects).Count)개):")
+    foreach ($p in @($config.projects)) { $lines.Add('  ' + (Get-ProjectStatusLine -Project $p)) }
+
+    $project = Get-SelectedProject
+    if ($project) {
+        $lines.Add('')
+        $lines.Add("― 대상 프로젝트 [$($project.name)] 상세 ―")
+        $lines.Add("worktree: $($project.worktreePath)")
+        try {
+            $lastTx = Get-AcLastTransaction -ProjectId $project.projectId
+            if ($lastTx.Record) {
+                $lines.Add("마지막 완결 transaction: gen=$($lastTx.Record.generation) · 기기=$($lastTx.Record.sourceMachineId)")
+            } else { $lines.Add('마지막 완결 transaction: 없음 (초기 상태)') }
+            if (Test-Path (Join-Path $project.worktreePath '.git')) {
+                $dirty = @((Invoke-AcGit -RepoPath $project.worktreePath -Arguments @('status', '--porcelain')).Output | Where-Object { $_ })
+                $lines.Add("dirty : $($dirty.Count) 개 파일 (인계 대상 여부는 profile allowedGlobs 기준)")
+            }
+        } catch { $lines.Add("상세 조회 오류: $_") }
     }
     $TxtStatus.Text = ($lines -join "`n")
 }
@@ -248,7 +268,7 @@ function Start-LauncherProcess {
     $quotedArgs = foreach ($a in $fullArgs) {
         if ($a -like '-*') { $a } else { "'" + ($a -replace "'", "''") + "'" }
     }
-    $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
+    $inner = "`$PSStyle.OutputRendering='PlainText'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
         "& '" + ($scriptPath -replace "'", "''") + "' " + ($quotedArgs -join ' ') + "; exit `$LASTEXITCODE"
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
@@ -376,7 +396,11 @@ function Show-ProjectDialog {
     $dlg.FindName('BtnOk').Add_Click({
         foreach ($pair in @(@($txtMachine.Text, '기기 이름'), @($txtVault.Text, 'vault URL'),
                 @($txtName.Text, '프로젝트 이름'), @($txtRemote.Text, '프로젝트 저장소 URL'))) {
-            if (-not $pair[0].Trim()) { Set-Banner red "$($pair[1]) 을(를) 입력하세요"; return }
+            if (-not $pair[0].Trim()) {
+                [System.Windows.MessageBox]::Show($dlg, "$($pair[1]) 을(를) 입력하세요.", 'Agent Continuity',
+                    [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
+                return
+            }
         }
         $setupArgs = @(
             '-MachineId', $txtMachine.Text.Trim(), '-VaultRemote', $txtVault.Text.Trim(),
