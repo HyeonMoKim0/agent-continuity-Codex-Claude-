@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install age
+        run: sudo apt-get update && sudo apt-get install -y age
+      - name: Run test suite
+        shell: pwsh
+        run: ./tests/Run-Tests.ps1
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install age (optional — Phase 2/3 tests skip if missing)
+        continue-on-error: true
+        run: choco install age.portable -y
+      - name: Run test suite
+        shell: pwsh
+        run: ./tests/Run-Tests.ps1
+
+  parse-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every PowerShell file
+        shell: pwsh
+        run: |
+          $errs = @()
+          Get-ChildItem -Recurse -Include *.ps1, *.psm1, *.psd1 -Path . | ForEach-Object {
+            $tokens = $null; $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors) { $errs += "$($_.FullName): $($parseErrors[0].Message)" }
+          }
+          if ($errs) { $errs | ForEach-Object { Write-Error $_ }; exit 1 }
+          'all files parse OK'
+      - name: Module manifest sanity
+        shell: pwsh
+        run: |
+          Test-ModuleManifest ./AgentContinuity.psd1
+          Import-Module ./AgentContinuity.psd1 -Force -DisableNameChecking
+          if (-not (Get-Command Get-AcHome -ErrorAction SilentlyContinue)) { throw 'module export missing' }
+          'module import OK'

@@ -5,7 +5,25 @@
 데스크톱과 노트북 사이에서 Codex·Claude 작업을 안전하게 이어가는 도구입니다.
 정상 사용은 **`작업 시작` 1회 클릭 → 작업 → `종료·인계` 1회 클릭**으로 끝납니다.
 
-전체 설계는 [docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md](docs/plan/Codex-Claude-기기간-연속성-구축-계획-v2.md) 를 따릅니다.
+전체 설계 계획서(비공개 개인 문서)는 소유자의 `agent-continuity-vault` 저장소
+`docs` 브랜치에 보관되어 있으며, 본문에서 `§n` 으로 인용되는 절 번호는 그 문서
+기준입니다.
+
+## 설치 (배포판)
+
+```powershell
+# 1) GitHub Releases 에서 AgentContinuity-vX.Y.Z.zip 다운로드 후 압축 해제
+# 2) 해제한 폴더에서 (PowerShell 7 이 없어도 실행 가능):
+powershell -ExecutionPolicy Bypass -File .\Install-AgentContinuity.ps1
+```
+
+설치 스크립트가 의존성(git / PowerShell 7 / age)을 검사해 winget 설치를
+제안하고, 파일을 `%LOCALAPPDATA%\Programs\AgentContinuity` 에 배치한 뒤
+바탕화면·시작 메뉴에 `Agent Continuity` 바로가기를 만듭니다. 이후 프로젝트
+등록은 아래 Setup 마법사로 진행합니다.
+
+PowerShell 모듈로도 쓸 수 있습니다: `Import-Module .\AgentContinuity.psd1`
+(모든 `*-Ac*` 함수 노출).
 
 ## 현재 구현 상태 — Phase 3 까지
 
@@ -185,7 +203,8 @@ adapters/    CodexCliAdapter, ClaudeCodeAdapter  (Phase 3 까지 세션 복원 �
 schemas/     profile / lease / transaction JSON Schema
 templates/   CURRENT.md, DECISIONS.md, OPEN-QUESTIONS.md
 tests/       unit / integration (자체 경량 러너, Pester 불필요)
-docs/plan/   승인된 계획서 v2
+AgentContinuity.psd1/.psm1   PowerShell 모듈 진입점
+Install-AgentContinuity.ps1  배포판 설치 스크립트
 ```
 
 ## 테스트
