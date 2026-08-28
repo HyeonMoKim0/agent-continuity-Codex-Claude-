@@ -112,6 +112,16 @@ function Invoke-AcGit {
 # transaction refs live here as refs/heads/locks/<pid> and refs/heads/sync/<pid>.
 # ---------------------------------------------------------------------------
 
+function Get-AcShaFromOutput {
+    # git can interleave warnings (e.g. Windows CRLF notices on stderr) with
+    # the object id; never trust a raw .Trim(). Take the last line that is a
+    # bare sha.
+    param([Parameter(Mandatory)] $GitResult)
+    $sha = @($GitResult.Output | Where-Object { $_ -match '^[0-9a-f]{40,64}$' }) | Select-Object -Last 1
+    if (-not $sha) { throw "git 출력에서 object id 를 찾지 못했습니다: $($GitResult.Text)" }
+    return $sha
+}
+
 function Get-AcVaultPath { Join-Path (Get-AcHome) 'vault.git' }
 
 function Initialize-AcVault {
@@ -186,16 +196,18 @@ function New-AcRefCommit {
             $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ac-blob-" + [Guid]::NewGuid().ToString('N'))
             try {
                 [System.IO.File]::WriteAllText($tmp, [string]$Files[$path], [System.Text.UTF8Encoding]::new($false))
-                $blob = (Invoke-AcGit -RepoPath $vault -Arguments @('hash-object', '-w', $tmp)).Text.Trim()
+                # vault records must be stored byte-exact (record hashes depend
+                # on them): disable CRLF conversion for this object write.
+                $blob = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $vault -Arguments @('-c', 'core.autocrlf=false', 'hash-object', '-w', $tmp))
                 Invoke-AcGit -RepoPath $vault -Arguments @('update-index', '--add', '--cacheinfo', "100644,$blob,$path") | Out-Null
             } finally {
                 Remove-Item -Path $tmp -Force -ErrorAction SilentlyContinue
             }
         }
-        $tree = (Invoke-AcGit -RepoPath $vault -Arguments @('write-tree')).Text.Trim()
+        $tree = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $vault -Arguments @('write-tree'))
         $commitArgs = @('commit-tree', $tree, '-m', $Message)
         if ($ParentSha) { $commitArgs += @('-p', $ParentSha) }
-        $sha = (Invoke-AcGit -RepoPath $vault -Arguments $commitArgs).Text.Trim()
+        $sha = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $vault -Arguments $commitArgs)
         $push = Invoke-AcGit -RepoPath $vault -Arguments @('push', '--quiet', 'origin', "${sha}:refs/heads/${RefName}") -AllowFail
         if ($push.ExitCode -ne 0) {
             if ($push.Text -match 'fetch first|non-fast-forward|rejected|stale info|failed to push') {

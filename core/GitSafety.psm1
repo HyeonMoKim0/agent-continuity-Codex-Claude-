@@ -115,7 +115,7 @@ function New-AcStagingSnapshot {
                 Invoke-AcGit -RepoPath $worktree -Arguments @('update-index', '--add', '--', $item.path) | Out-Null
             }
         }
-        $tree = (Invoke-AcGit -RepoPath $worktree -Arguments @('write-tree')).Text.Trim()
+        $tree = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $worktree -Arguments @('write-tree'))
     } finally {
         if ($null -ne $oldIndex) { $env:GIT_INDEX_FILE = $oldIndex } else { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue }
         Remove-Item -Path $indexFile -Force -ErrorAction SilentlyContinue
@@ -134,7 +134,7 @@ function New-AcProjectHeadCommit {
         [Parameter(Mandatory)][string] $Message
     )
     $worktree = $Project.worktreePath
-    $sha = (Invoke-AcGit -RepoPath $worktree -Arguments @('commit-tree', $TreeSha, '-p', $ExpectedParent, '-m', $Message)).Text.Trim()
+    $sha = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $worktree -Arguments @('commit-tree', $TreeSha, '-p', $ExpectedParent, '-m', $Message))
 
     $raw = (Invoke-AcGit -RepoPath $worktree -Arguments @('cat-file', 'commit', $sha)).Output
     $treeLine = $raw | Where-Object { $_ -match '^tree ' } | Select-Object -First 1
@@ -216,8 +216,8 @@ function New-AcRecoveryBranch {
                 Invoke-AcGit -RepoPath $worktree -Arguments @('update-index', '--add', '--', $path) | Out-Null
             }
         }
-        $tree = (Invoke-AcGit -RepoPath $worktree -Arguments @('write-tree')).Text.Trim()
-        $sha = (Invoke-AcGit -RepoPath $worktree -Arguments @('commit-tree', $tree, '-p', $head, '-m', "recovery snapshot ($Label)")).Text.Trim()
+        $tree = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $worktree -Arguments @('write-tree'))
+        $sha = Get-AcShaFromOutput (Invoke-AcGit -RepoPath $worktree -Arguments @('commit-tree', $tree, '-p', $head, '-m', "recovery snapshot ($Label)"))
         Invoke-AcGit -RepoPath $worktree -Arguments @('branch', $branch, $sha) | Out-Null
         return @{ Branch = $branch; Sha = $sha; IncludesWip = $true }
     } finally {
