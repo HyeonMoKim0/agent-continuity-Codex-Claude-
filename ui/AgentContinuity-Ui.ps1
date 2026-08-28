@@ -192,10 +192,18 @@ function Start-LauncherProcess {
     $script:RunningLabel = $Label
     foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh)) { $b.IsEnabled = $false }
 
+    # 한국어 Windows 의 기본 콘솔 코드페이지(CP949)로 인한 로그 깨짐 방지:
+    # 자식 pwsh 가 UTF-8 로 출력하도록 -Command 래퍼에서 인코딩을 고정한다.
+    $scriptPath = Join-Path $script:AcRoot $ScriptRel
+    $quotedArgs = foreach ($a in (@('-ProjectName', $project.name) + $Arguments)) {
+        if ($a -like '-*') { $a } else { "'" + ($a -replace "'", "''") + "'" }
+    }
+    $inner = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
+        "& '" + ($scriptPath -replace "'", "''") + "' " + ($quotedArgs -join ' ') + "; exit `$LASTEXITCODE"
+
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = 'pwsh'
-    foreach ($a in @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
-            (Join-Path $script:AcRoot $ScriptRel), '-ProjectName', $project.name) + $Arguments) {
+    foreach ($a in @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $inner)) {
         $psi.ArgumentList.Add($a)
     }
     $psi.UseShellExecute = $false
