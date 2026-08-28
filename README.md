@@ -102,6 +102,18 @@ pwsh bootstrap/Setup-AgentContinuity.ps1 `
   -Agent codex
 ```
 
+유용한 옵션:
+
+- `-WorktreePath D:\원하는\경로` — 전용 worktree 를 원하는 위치에 만들거나,
+  **이미 있는 그 프로젝트의 git 클론을 전용 worktree 로 승격**합니다
+  (origin 일치 검증 후 등록; 승격된 폴더의 allowedGlobs 안 변경은 이후
+  `종료·인계` 때 자동 커밋된다는 계약을 받아들이는 것입니다).
+  프로젝트마다 다른 경로를 지정해 여러 worktree 를 병렬 운영할 수 있습니다.
+- `-Agent codex|claude` — `작업 시작`이 전용 worktree 를 작업 폴더로 해당
+  CLI 를 자동 실행합니다 (폴더를 직접 찾아갈 필요 없음). 나중에 바꾸려면
+  같은 이름으로 Setup 을 다시 실행하면 등록이 갱신됩니다.
+- `-AutoStartUi` — Windows 로그인 시 Agent Continuity UI 자동 실행 등록.
+
 수행 내용: 전용 continuity worktree 생성(`§4.2`), 작업 브랜치(`continuity/work`) 준비,
 `docs/agent-handoff/` 시드(CURRENT/DECISIONS/OPEN-QUESTIONS), profile 기본값 저장,
 Windows 에서는 바탕화면 바로가기 3종 생성, 마지막에 자가진단 실행.
@@ -125,6 +137,9 @@ pwsh -ExecutionPolicy Bypass -File ui\AgentContinuity-Ui.ps1
   계속 실행됩니다
 - 가상/보조 기기는 `AGENT_CONTINUITY_HOME` 을 설정한 창에서 UI 를 실행하면
   해당 기기로 동작합니다
+- **아이콘 커스터마이징**: 원하는 이미지를 `assets\icon.png` 로 저장하면
+  UI 창·트레이·바탕화면 바로가기 아이콘에 자동 적용됩니다 (.ico 자동 생성;
+  바로가기에 반영하려면 Setup 을 한 번 다시 실행)
 
 ## 일상 사용
 

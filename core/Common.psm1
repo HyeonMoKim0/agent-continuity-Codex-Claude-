@@ -259,6 +259,76 @@ function New-AcRefCommit {
     }
 }
 
+function Convert-AcPngToIcon {
+    # Builds a .ico from a .png (PNG-compressed entries, Vista+ format). On
+    # Windows the source is resized to standard sizes; elsewhere the PNG is
+    # embedded as-is (used only by tests).
+    param(
+        [Parameter(Mandatory)][string] $PngPath,
+        [Parameter(Mandatory)][string] $IcoPath
+    )
+    $entries = [System.Collections.Generic.List[byte[]]]::new()
+    $sizes = [System.Collections.Generic.List[int]]::new()
+    if ($IsWindows) {
+        # System.Drawing 은 Windows 전용: 비 Windows 에서 함수 본문이 컴파일될
+        # 때 타입 초기화가 터지지 않도록 지연 생성 scriptblock 으로 격리한다.
+        $resize = [scriptblock]::Create(@'
+param($PngPath, $Entries, $Sizes)
+Add-Type -AssemblyName System.Drawing
+$src = [System.Drawing.Image]::FromFile($PngPath)
+try {
+    foreach ($s in @(256, 64, 48, 32, 16)) {
+        $bmp = [System.Drawing.Bitmap]::new($src, $s, $s)
+        $ms = [System.IO.MemoryStream]::new()
+        try {
+            $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+            $Entries.Add($ms.ToArray()); $Sizes.Add($s)
+        } finally { $ms.Dispose(); $bmp.Dispose() }
+    }
+} finally { $src.Dispose() }
+'@)
+        & $resize $PngPath $entries $sizes
+    } else {
+        $png = [System.IO.File]::ReadAllBytes($PngPath)
+        $w = ($png[16] -shl 24) + ($png[17] -shl 16) + ($png[18] -shl 8) + $png[19]
+        $entries.Add($png); $sizes.Add([int]$w)
+    }
+    $count = $entries.Count
+    $ms2 = [System.IO.MemoryStream]::new()
+    $bw = [System.IO.BinaryWriter]::new($ms2)
+    try {
+        $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$count)
+        $offset = 6 + 16 * $count
+        for ($i = 0; $i -lt $count; $i++) {
+            $dim = if ($sizes[$i] -ge 256) { [byte]0 } else { [byte]$sizes[$i] }
+            $bw.Write($dim); $bw.Write($dim)          # width, height (0 = 256)
+            $bw.Write([byte]0); $bw.Write([byte]0)    # colors, reserved
+            $bw.Write([uint16]1); $bw.Write([uint16]32)
+            $bw.Write([uint32]$entries[$i].Length)
+            $bw.Write([uint32]$offset)
+            $offset += $entries[$i].Length
+        }
+        foreach ($e in $entries) { $bw.Write($e) }
+        $bw.Flush()
+        [System.IO.File]::WriteAllBytes($IcoPath, $ms2.ToArray())
+    } finally { $bw.Dispose(); $ms2.Dispose() }
+    return $IcoPath
+}
+
+function Get-AcIconPath {
+    # Returns the .ico to use for UI/shortcuts, generating it from
+    # assets/icon.png when needed. $null when no custom icon is installed.
+    param([Parameter(Mandatory)][string] $ToolRoot)
+    $ico = Join-Path $ToolRoot 'assets/icon.ico'
+    $png = Join-Path $ToolRoot 'assets/icon.png'
+    if (Test-Path $ico) { return $ico }
+    if (Test-Path $png) {
+        try { return (Convert-AcPngToIcon -PngPath $png -IcoPath $ico) }
+        catch { Write-AcLog -Level WARN -Message "아이콘 변환 실패: $_"; return $null }
+    }
+    return $null
+}
+
 function ConvertTo-AcGlobRegex {
     # Converts a profile glob (allowedGlobs/excludedGlobs) to an anchored regex.
     # '**' spans directories, '*' and '?' stay inside one path segment.

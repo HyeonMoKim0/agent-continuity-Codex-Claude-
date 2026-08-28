@@ -61,6 +61,23 @@ Invoke-AcTest 'secret scan: 파일명 규칙 (.env, auth.json, id_rsa)' {
     } finally { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+Invoke-AcTest 'icon: PNG → ICO 변환이 유효한 헤더를 생성' {
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("ico-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+    New-Item -ItemType Directory -Path $dir | Out-Null
+    try {
+        # 1x1 투명 PNG
+        $png = Join-Path $dir 'icon.png'
+        [System.IO.File]::WriteAllBytes($png, [Convert]::FromBase64String(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='))
+        $ico = Join-Path $dir 'icon.ico'
+        Convert-AcPngToIcon -PngPath $png -IcoPath $ico | Out-Null
+        $bytes = [System.IO.File]::ReadAllBytes($ico)
+        Assert-AcTrue ($bytes.Length -gt 22) 'ico 크기'
+        Assert-AcEqual 0 $bytes[0]; Assert-AcEqual 1 $bytes[2]  # reserved=0, type=1
+        Assert-AcTrue ($bytes[4] -ge 1) '엔트리 1개 이상'
+    } finally { Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Invoke-AcTest 'lease: 만료 판정은 5분 시계 오차를 허용' {
     $fresh = [pscustomobject]@{ expiresAt = [DateTime]::UtcNow.AddMinutes(10).ToString('yyyy-MM-ddTHH:mm:ssZ') }
     $graceWindow = [pscustomobject]@{ expiresAt = [DateTime]::UtcNow.AddMinutes(-3).ToString('yyyy-MM-ddTHH:mm:ssZ') }

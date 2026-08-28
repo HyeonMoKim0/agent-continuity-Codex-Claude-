@@ -267,6 +267,18 @@ function Show-RecoveryDialog {
 
 $tray = [System.Windows.Forms.NotifyIcon]::new()
 $tray.Icon = [System.Drawing.SystemIcons]::Application
+# 사용자 지정 아이콘: assets/icon.png 를 두면 .ico 로 변환해 창·트레이에 적용
+$customIcon = Get-AcIconPath -ToolRoot $script:AcRoot
+if ($customIcon) {
+    try {
+        $tray.Icon = [System.Drawing.Icon]::new($customIcon)
+        $pngPath = Join-Path $script:AcRoot 'assets/icon.png'
+        $iconSource = if (Test-Path $pngPath) { $pngPath } else { $customIcon }
+        $window.Icon = [System.Windows.Media.Imaging.BitmapFrame]::Create([Uri]::new($iconSource))
+    } catch {
+        Write-AcLog -Level WARN -Message "아이콘 적용 실패: $_"
+    }
+}
 $tray.Text = 'Agent Continuity'
 $tray.Visible = $false
 $tray.Add_DoubleClick({
