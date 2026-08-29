@@ -123,8 +123,46 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
    거부, 설치본 아닌 폴더 거부, config/state 무접촉, 단위 테스트 4개),
    `CHANGELOG.md`, `SECURITY.md`. 주의: `AgentContinuity.psd1` 의
    ModuleVersion(0.4.0)이 릴리스 태그와 어긋나 있음 — 다음 릴리스 때 맞출 것.
-5. 공개 전환 시: README 의 개인 URL 일반화 (위협 모델 요약은 SECURITY.md 에 있음).
+5. ~~공개 전환 시 README 일반화~~ — 완료 (개인 문서 언급 제거, 구조 최신화,
+   Update/i18n/커스터마이징 섹션 추가). 위협 모델 요약은 SECURITY.md.
 6. Phase 4(데스크톱 앱 대화 목록 통합)는 **공식 API 없이는 착수 금지** (ADR-006).
+
+### 개선 백로그 — 2026-08-29 사용성 점검 (전 CLI 플로우 실제 구동으로 확인)
+
+**A. 원칙 위반·오해 유발 (버그 취급, 소규모 수정)**
+1. 중단된 Finish 가 CURRENT.md 오염: 인계 기록 footer 를 3단계에서 미리 써서,
+   secret 차단 등으로 중단돼도 기록이 남고(미커밋 modified) 다음 성공 때
+   중복·허위 기록이 쌓임. → footer 작성을 secret scan 통과 뒤로 이동.
+2. 에이전트 CLI 실행 실패(미설치 등) 시 raw 예외로 종료: lease·keeper 는 살아
+   있고 Finish 로 정상 복구됨을 확인했으나 안내가 전무. → try/catch 후
+   "세션은 열려 있음, worktree 에서 직접 작업 후 종료·인계" 안내하고 exit 0.
+3. Setup 이 원격 기본 브랜치를 못 찾으면(HEAD 미지정 bare 등) 조용히 코드
+   없는 orphan 작업 브랜치를 생성. → 원격에 커밋이 있는데 기준 브랜치를 못
+   찾으면 중단이 정답 (fail-closed).
+4. 미등록 프로젝트 이름 → raw 예외. 등록된 이름 목록과 함께 정중히 중단.
+
+**B. 일상 마찰**
+5. worktree 경로가 Setup 완료·Start 완료 어디에도 안 나옴 (agent=none 이면
+   어디서 작업할지 모름). Setup 은 기본 allowedGlobs 도 함께 보여줄 것.
+6. CURRENT.md 인계 기록 무한 누적(왕복 5회에 7개) + Start 가 전체 파일을
+   덤프. → 자동 기록 섹션을 마커 기반으로 최신 1개(+직전 N개)만 유지.
+7. Show-Status 해석 부재: released 인데 "소유 기기=" 표기 혼란, 로컬 HEAD 가
+   projectHead 보다 뒤처져도 raw sha 만 나옴. → "이 기기는 뒤처짐 — 작업
+   시작으로 따라잡으세요" / "최신 상태" 한 줄 추가.
+8. Setup/저장 로그의 64자 projectId 노이즈 → 사용자 메시지는 프로젝트 이름,
+   id 는 로그 파일로.
+9. Setup 재실행 시 무엇이 갱신됐는지(agent none→claude 등) 무언.
+
+**C. 정리**
+10. launcher Start/Finish 의 죽은 `-NonInteractive` 파라미터.
+
+**D. 실기기(Windows)에서만 확인 가능 — UI**
+- 실행 중 상태 패널 자동 갱신 없음(완료 후에만), 중단 시 원인·권장 행동이
+  로그에 묻힘(배너로 승격 검토), en 표시 확인.
+
+점검에서 정상 확인된 것: 2기기 왕복, 동시 Start 차단, secret 차단→수정→재시도,
+사용자 시크릿 규칙 e2e, Phase 2 활성화 흐름, Setup 재실행 agent 변경,
+에이전트 실행 실패 후 Finish 복구, Start/Finish 로컬 1.2~1.5초.
 
 ## 8. 운영 방법 (개발자용 치트시트)
 
