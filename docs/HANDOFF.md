@@ -1,22 +1,20 @@
 # Agent Continuity — 개발 인수인계 문서
 
 > 이 문서는 이 프로젝트의 개발을 이어받는 사람(또는 새 AI 세션)을 위한 것이다.
-> 마지막 갱신: 2026-08-29 · 테스트: 71/71 green
-> 기준 브랜치: `claude/handoff-md-setup-1w6t0y` (**main 미병합** — 아래 §0)
+> 마지막 갱신: 2026-08-29 · 테스트: 73/73 green
+> 기준 브랜치: `main` (PR #1 병합 완료 — 아래 §0)
 
 ---
 
 ## 0. 다음 세션 시작 가이드 (여기부터 읽기)
 
-1. **브랜치 상태**: 2026-08-29 세션의 작업 8커밋(프로필 편집 UI, D3 전체,
-   D4, README 일반화, 사용성 라운드)이 전부 `claude/handoff-md-setup-1w6t0y`
-   에 있고 **main 에 아직 병합되지 않았다**. 이어서 개발하려면 이 브랜치에서
-   계속하고, 사용자가 원하면 PR 로 main 병합부터 진행한다.
-2. **첫 명령**: `pwsh tests/Run-Tests.ps1` — 71/71 green 이 기준선이다.
+1. **브랜치 상태**: 2026-08-29 세션의 12커밋(프로필 편집 UI, D3 전체, D4,
+   README 일반화, 사용성 라운드, CI 수정)이 PR #1 로 **main 에 병합됐다**
+   (merge commit `d49a35a`). 이어지는 작업은 최신 main 에서 시작한다.
+2. **첫 명령**: `pwsh tests/Run-Tests.ps1` — 73/73 green 이 기준선이다.
    (Linux 는 PowerShell 7 + age 설치 필요; age 없으면 Phase2/3 통합은 자동 skip)
-3. **지금 열려 있는 일**은 §7 을 보라. 요약: ① 실기기(Windows) 피드백
-   라운드(§5) → ② 사용자가 "배포하자" 하면 v0.6.0 릴리스(§8, 그 전에
-   `AgentContinuity.psd1` ModuleVersion 0.4.0 을 태그와 맞출 것) → ③ UI
+3. **지금 열려 있는 일**은 §7 을 보라. 요약: ① 실기기(Windows) 검증
+   라운드(§5) → ② 사용자가 "배포하자" 하면 v0.6.0 릴리스(§8) → ③ UI
    개선 D 항목(§7 백로그).
 4. **건드리면 안 되는 규칙**은 §9. 새 사용자 노출 문자열은 반드시
    `i18n/ko.psd1` + `en.psd1` 양쪽에 추가한다(누락은 I18n.Tests 가 잡음).
@@ -113,18 +111,30 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
   - 사용성 라운드: 중단된 Finish 의 CURRENT.md 무흔적화, 에이전트 실행 실패
     복구 안내, Setup orphan 가드, CURRENT.md 기록 3개 상한, worktree 경로
     표시, Show-Status 해석 라인 등 (§7 백로그 A/B/C 전부)
+  - **CI test-windows 최초 통과**: 테스트 하네스가 자식 launcher 출력을
+    파이프로 받는 바람에 Start-Work 가 띄운 백그라운드 keeper 가 그 쓰기
+    핸들을 상속해 EOF 가 오지 않았다(run 1~9 는 전부 6시간 타임아웃). 파일
+    리다이렉션 + WaitForExit 로 교체, 두 잡에 timeout-minutes 추가.
+  - **UI 기동 불능 수정**: i18n 이관 때 `Expand-AcXamlText` 가 첫 호출보다
+    아래에 정의되어 UI 가 실행 즉시 CommandNotFoundException 으로 죽었다.
+    PowerShell 은 함수를 호이스팅하지 않는다. 정의를 위로 옮기고,
+    `tests/unit/ScriptSanity.Tests.ps1` 이 이 부류를 정적으로 막는다
+    (WPF UI 는 Windows 전용이라 스위트가 실행할 수 없고, CI parse-check 은
+    구문만 본다 — 두 겹 모두 통과하는 실패였다).
 
 ## 5. 아직 검증되지 않은 것 (다음 확인 항목)
 
 1. **진짜 두 번째 PC에서 Phase 3 복원**: `세션 복원 완료` → `codex resume <id>` 로
    대화가 실제로 이어지는지 (가상 기기는 Codex 홈을 공유해서 검증 불가).
-2. 최신 UI 라운드(모든 프로젝트 병렬 상태, 팝업 검증, 경로 변경)의 실기기 확인 —
-   사용자가 피드백 라운드 진행 중.
+2. **UI 전반의 실기기 재확인 (최우선)**: 기동 불능 버그(§4) 때문에 i18n
+   이관 이후의 UI 는 실기기에서 한 번도 뜬 적이 없다. 창이 뜨는지부터 시작해
+   모든 프로젝트 병렬 상태, 팝업 검증, 경로 변경, 라벨(%key% 치환) 확인.
 3. 대형 실제 프로젝트(untracked 수천 개) 승격 후 일상 사용.
 4. `AgentContinuity-Setup.exe` 신규 PC(의존성 전무) 시나리오.
 5. 2026-08-29 세션 산출물의 실기기 확인: profile 편집 다이얼로그, `AC_LANG=en`
    에서의 UI 표시(XAML `%key%` 치환), 새 Setup/Start/Status 출력, CURRENT.md
    마커 기록의 실사용 가독성, Update-AgentContinuity 실제 설치본 대상 실행.
+   (UI 항목은 4~5행 기준으로 §5-2 와 같은 라운드에서 함께 본다.)
 
 ## 6. 알려진 제약·이슈
 
@@ -133,6 +143,8 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 - vault 의 `locks/*`, `sync/*` branch protection 은 GitHub Free 비공개 저장소라
   미적용(선택 사항 — CAS 자체는 일반 push 의 ff 검사로 보장됨).
 - 코드 서명 없음 → exe 실행 시 SmartScreen 경고 (배포 계획 D5).
+- 릴리스 태그와 `AgentContinuity.psd1` ModuleVersion 의 불일치는 이제 Release
+  워크플로가 테스트 전에 막는다 (현재 manifest 0.6.0 = 다음 태그 v0.6.0).
 - profile 편집은 UI 의 [profile 편집] 버튼 또는
   `%LOCALAPPDATA%\AgentContinuity\config\profiles\<projectId>.json` 직접 편집.
   UI 편집 대화상자는 아직 실기기 미확인.
@@ -145,8 +157,9 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 
 ## 7. 다음에 할 일 (우선순위 순)
 
-1. **사용자 피드백 라운드 마무리** — §5 항목 확인, 발견 버그 수정.
-   사용자가 "배포하자"라고 하면 v0.6.0 릴리스 발행(방법은 §8).
+1. **사용자 실기기 검증 라운드** — §5 항목 확인, 발견 버그 수정. UI 는
+   기동 불능 수정 직후라 §5-2 를 먼저 본다. 사용자가 "배포하자"라고 하면
+   v0.6.0 릴리스 발행(방법은 §8).
 2. ~~profile 편집 UI~~ — **완료**: 메인 창 [profile 편집] 버튼 →
    allowedGlobs/excludedGlobs/trackedOnly/maxDiffSizeBytes 편집 대화상자.
    검증·저장은 `core/Common.psm1` 의 `Test-AcProfileValue`/`Save-AcProfile`
@@ -162,8 +175,8 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
      I18n.Tests 가 강제. **UI 의 en 표시는 실기기(Windows)에서 미확인.**
 4. ~~D4~~ — **완료**: `Update-AgentContinuity.ps1`(진행 중 세션·keeper 감지 시
    거부, 설치본 아닌 폴더 거부, config/state 무접촉, 단위 테스트 4개),
-   `CHANGELOG.md`, `SECURITY.md`. 주의: `AgentContinuity.psd1` 의
-   ModuleVersion(0.4.0)이 릴리스 태그와 어긋나 있음 — 다음 릴리스 때 맞출 것.
+   `CHANGELOG.md`, `SECURITY.md`. ~~ModuleVersion 불일치~~ — 해소: manifest
+   를 0.6.0 으로 올리고, Release 워크플로가 태그와의 일치를 강제한다.
 5. ~~공개 전환 시 README 일반화~~ — 완료 (개인 문서 언급 제거, 구조 최신화,
    Update/i18n/커스터마이징 섹션 추가). 위협 모델 요약은 SECURITY.md.
 6. Phase 4(데스크톱 앱 대화 목록 통합)는 **공식 API 없이는 착수 금지** (ADR-006).
@@ -198,8 +211,8 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 pwsh tests/Run-Tests.ps1
 
 # 릴리스 발행: GitHub → Actions → Release → Run workflow → tag 에 vX.Y.Z 입력
-#  (전체 테스트가 release gate — 현재 71개; 통과해야 zip/exe/sha256 첨부)
-#  발행 전: AgentContinuity.psd1 의 ModuleVersion 을 태그와 맞출 것
+#  (release gate: manifest 버전 == 태그 검사 → 전체 테스트 73개 → zip/exe/sha256)
+#  manifest 가 태그와 다르면 테스트 전에 실패하므로 psd1 을 먼저 올릴 것
 
 # 설치 exe 로컬 빌드 (Go 1.23+, linux/mac 에서 교차 컴파일)
 installer/build.sh vX.Y.Z
@@ -251,3 +264,6 @@ $env:AC_CODEX_BIN = 'D:\tools\codex.exe'   # AC_CLAUDE_BIN 도 동일
 | `e25eb81` | Update-AgentContinuity + CHANGELOG + SECURITY.md (D4) |
 | `d46db47` | README 공개용 일반화 + 사용성 점검 백로그 |
 | `461f595` | 사용성 라운드: A1~A4 fail-closed 수정 + B5~B9/C10 마찰 제거 |
+| `764cf6f`~`99e97aa` | CI 수정: 에이전트 부재 판정, test-windows hang, Phase3 픽스처 |
+| `d49a35a` | PR #1 main 병합 (위 12커밋) |
+| (이 세션) | UI 기동 불능 수정 + ScriptSanity 회귀 테스트, manifest 0.6.0 + 릴리스 게이트 |

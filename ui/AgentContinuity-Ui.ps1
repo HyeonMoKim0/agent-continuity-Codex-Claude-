@@ -24,6 +24,16 @@ if (-not $IsWindows) {
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
+function Expand-AcXamlText {
+    # XAML 안의 %key% 자리를 현재 언어의 리소스 문자열(XML 이스케이프 적용)로
+    # 치환한다. 라벨을 코드가 아닌 리소스에서 가져오기 위한 전처리다 (D3 i18n).
+    param([Parameter(Mandatory)][string] $Xaml)
+    [regex]::Replace($Xaml, '%([a-zA-Z][a-zA-Z0-9.]*)%', {
+        param($m)
+        [System.Security.SecurityElement]::Escape((Get-AcText $m.Groups[1].Value))
+    })
+}
+
 # ---------------------------------------------------------------------------
 # XAML
 # ---------------------------------------------------------------------------
@@ -176,16 +186,6 @@ $profileXaml = @'
 $window = [Windows.Markup.XamlReader]::Parse((Expand-AcXamlText $xaml))
 foreach ($name in @('CmbProject', 'BtnRefresh', 'TxtStatus', 'Banner', 'TxtBanner', 'TxtLog', 'BtnStart', 'BtnFinish', 'BtnRecover', 'BtnAddProject', 'BtnMoveWorktree', 'BtnEditProfile', 'BtnTray')) {
     Set-Variable -Name $name -Value $window.FindName($name)
-}
-
-function Expand-AcXamlText {
-    # XAML 안의 %key% 자리를 현재 언어의 리소스 문자열(XML 이스케이프 적용)로
-    # 치환한다. 라벨을 코드가 아닌 리소스에서 가져오기 위한 전처리다 (D3 i18n).
-    param([Parameter(Mandatory)][string] $Xaml)
-    [regex]::Replace($Xaml, '%([a-zA-Z][a-zA-Z0-9.]*)%', {
-        param($m)
-        [System.Security.SecurityElement]::Escape((Get-AcText $m.Groups[1].Value))
-    })
 }
 
 # ---------------------------------------------------------------------------

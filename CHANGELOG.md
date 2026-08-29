@@ -29,6 +29,12 @@ with a `vX.Y.Z` tag input); the full test suite is the release gate.
   (session state or live lease keeper), refuses to overwrite a folder that
   is not an installation, and never touches config/state.
 - `CHANGELOG.md` and `SECURITY.md`.
+- Static script checks (`tests/unit/ScriptSanity.Tests.ps1`): no top-level
+  call before a function's definition, and every `%key%` placeholder in the
+  UI's XAML resolves in both ko and en resources.
+- The Release workflow now refuses to publish when
+  `AgentContinuity.psd1`'s ModuleVersion does not match the release tag
+  (checked before the test gate). The manifest is now 0.6.0.
 - `AC_CODEX_BIN` / `AC_CLAUDE_BIN` environment overrides for custom agent
   CLI locations.
 - Setup and Start now print the worktree path (and Setup the default
@@ -43,6 +49,13 @@ with a `vX.Y.Z` tag input); the full test suite is the release gate.
   instead of duplicating it.
 
 ### Fixed
+- The WPF UI could not start at all: `Expand-AcXamlText` (added by the i18n
+  migration) was defined *after* its first call, and PowerShell does not
+  hoist functions, so launching the UI died immediately with
+  `CommandNotFoundException`. The definition now precedes every use, and
+  `tests/unit/ScriptSanity.Tests.ps1` guards the whole class of failure —
+  the Windows-only UI is not executable by the suite and CI's parse-check
+  only checks syntax, so nothing else covered it.
 - An aborted Finish (secret detected, size limit) no longer writes the
   handoff record into `CURRENT.md` — a failed handoff leaves no trace in
   the worktree.

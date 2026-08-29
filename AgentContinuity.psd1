@@ -1,5 +1,5 @@
 @{
-    ModuleVersion     = '0.4.0'
+    ModuleVersion     = '0.6.0'
     NestedModules     = @(
         'core/Common.psm1'
         'core/Lease.psm1'

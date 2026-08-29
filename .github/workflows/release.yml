@@ -25,6 +25,17 @@ jobs:
           else
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
+      - name: Manifest version matches the tag
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          manifest=$(grep -oP "ModuleVersion\s*=\s*'\K[^']+" AgentContinuity.psd1)
+          if [ "v${manifest}" != "${TAG}" ]; then
+            echo "AgentContinuity.psd1 ModuleVersion is ${manifest}, but the release tag is ${TAG}."
+            echo "Bump the manifest to match the tag before releasing."
+            exit 1
+          fi
+          echo "manifest ${manifest} matches ${TAG}"
       - name: Install age
         run: sudo apt-get update && sudo apt-get install -y age
       - name: Run test suite (release gate)
