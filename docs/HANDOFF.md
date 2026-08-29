@@ -2,6 +2,25 @@
 
 > 이 문서는 이 프로젝트의 개발을 이어받는 사람(또는 새 AI 세션)을 위한 것이다.
 > 마지막 갱신: 2026-08-29 · 테스트: 71/71 green
+> 기준 브랜치: `claude/handoff-md-setup-1w6t0y` (**main 미병합** — 아래 §0)
+
+---
+
+## 0. 다음 세션 시작 가이드 (여기부터 읽기)
+
+1. **브랜치 상태**: 2026-08-29 세션의 작업 8커밋(프로필 편집 UI, D3 전체,
+   D4, README 일반화, 사용성 라운드)이 전부 `claude/handoff-md-setup-1w6t0y`
+   에 있고 **main 에 아직 병합되지 않았다**. 이어서 개발하려면 이 브랜치에서
+   계속하고, 사용자가 원하면 PR 로 main 병합부터 진행한다.
+2. **첫 명령**: `pwsh tests/Run-Tests.ps1` — 71/71 green 이 기준선이다.
+   (Linux 는 PowerShell 7 + age 설치 필요; age 없으면 Phase2/3 통합은 자동 skip)
+3. **지금 열려 있는 일**은 §7 을 보라. 요약: ① 실기기(Windows) 피드백
+   라운드(§5) → ② 사용자가 "배포하자" 하면 v0.6.0 릴리스(§8, 그 전에
+   `AgentContinuity.psd1` ModuleVersion 0.4.0 을 태그와 맞출 것) → ③ UI
+   개선 D 항목(§7 백로그).
+4. **건드리면 안 되는 규칙**은 §9. 새 사용자 노출 문자열은 반드시
+   `i18n/ko.psd1` + `en.psd1` 양쪽에 추가한다(누락은 I18n.Tests 가 잡음).
+5. 이번 세션의 상세 변경 내역은 `CHANGELOG.md` [Unreleased] 와 §10 커밋 표.
 
 ---
 
@@ -35,25 +54,37 @@ fail-closed(원본 보존 후 중단)이며, 자동 merge/rebase/force push 는 
 ```text
 core/Common.psm1       git 실행 래퍼(Invoke-AcGit, sha 파싱 Get-AcShaFromOutput),
                        config/home, vault ref CAS 커밋(New-AcRefCommit, 바이너리 포함),
-                       blob 추출(Save-AcRefBlob), glob 매칭, PNG→ICO 변환
+                       blob 추출(Save-AcRefBlob), glob 매칭, PNG→ICO 변환,
+                       schemaVersion 강제(Assert-AcSchemaVersion),
+                       profile 검증·저장(Test-AcProfileValue/Save-AcProfile),
+                       i18n(Get-AcText/Get-AcLanguage — AC_LANG > config.language > ko),
+                       CURRENT.md 인계 기록 관리(Update-AcHandoffLog, 최근 3개)
 core/Lease.psm1        lease 획득/heartbeat/해제/만료 takeover(Invoke-AcLeaseTakeover),
                        keeper 프로세스 관리. env: AC_LEASE_DURATION_MINUTES, AC_LEASE_SKEW_MINUTES
 core/Transaction.psm1  완결 transaction 기록/체인 검증(parent hash→generation→projectHead)
 core/GitSafety.psm1    읽기 전용 preflight(profile 인지: allowedGlobs 밖 변경은 무시),
                        profile 경계 staging snapshot, projectHead commit 생성·재검증,
                        CAS push+read-back, ff 전용 적용, recovery/quarantine branch
-core/SecretScan.psm1   파일명·내용 시크릿 규칙 (canary: AC_SECRET_CANARY)
+core/SecretScan.psm1   파일명·내용 시크릿 규칙 (canary: AC_SECRET_CANARY).
+                       사용자 규칙 config/secret-rules.json (추가 전용, fail-closed)
 core/Crypto.psm1       age 다중 수신자 암호화, DPAPI(비Windows는 AES 폴백) 키 보호,
                        수신자 레지스트리(vault meta/recipients ref), rescue 위생 규칙
 core/Backup.psm1       암호화 백업/검증/복원(자동 롤백), rescue bundle
 core/SessionSync.psm1  Phase 3 오케스트레이션: 버전 allowlist, JSONL 무결성,
                        스냅숏 생성/복원, 충돌·강등 규칙
 adapters/              Codex(rollout JSONL, cwd 매칭)·Claude(경로 munge) 어댑터.
-                       env 오버라이드: AC_CODEX_HOME/AC_CODEX_VERSION, AC_CLAUDE_*
-launcher/Start-Work.ps1   §6.4 순서 그대로. lease 는 keeper 인계 전 실패 시 finally 해제
-launcher/Finish-Work.ps1  §6.3 순서 그대로. 어떤 실패도 lease 유지+중단
+                       env 오버라이드: AC_CODEX_HOME/AC_CODEX_VERSION/AC_CODEX_BIN,
+                       AC_CLAUDE_* (BIN 은 커스텀 CLI 경로·테스트용)
+launcher/Start-Work.ps1   §6.4 순서 그대로. lease 는 keeper 인계 전 실패 시 finally 해제.
+                          에이전트 실행 실패는 세션 유지 + 수동 작업 안내
+launcher/Finish-Work.ps1  §6.3 순서 그대로. 어떤 실패도 lease 유지+중단.
+                          크기·secret 검사는 CURRENT.md 기록 작성보다 앞 (A1)
+launcher/Show-Status.ps1  읽기 전용 상태 + "일치/뒤처짐" 해석 라인
 launcher/Recover-Work.ps1 복구 센터(Takeover, 백업 검증/복원, ReleaseRetry 등)
 launcher/Invoke-LeaseKeeper.ps1  숨김 heartbeat keeper
+i18n/ko.psd1, en.psd1  사용자 노출 문자열 전체 (ko 가 기준, en 은 오버레이;
+                       키 완전성·{n} 일치는 I18n.Tests 가 CI 에서 강제)
+Update-AgentContinuity.ps1  설치본 업데이트 (진행 중 세션·keeper 감지 시 거부)
 ui/AgentContinuity-Ui.ps1  WPF 창(프로젝트 추가/경로 변경/시작/인계/복구/트레이)
 bootstrap/Setup-AgentContinuity.ps1   기기·프로젝트 등록, -WorktreePath 로 기존 클론 승격
 bootstrap/Enable-AgentContinuityPhase2.ps1  암호화 활성화(identity/복구키/수신자)
@@ -75,6 +106,13 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 - UI(WPF) + 설치 exe(v0.5.1 릴리스) + CI(ubuntu/windows) + MIT LICENSE
 - 실사용 중 잡은 Windows 전용 버그: CRLF 경고로 sha 파싱 오염, CP949 로그 깨짐,
   ANSI 코드 노출, dot-파일 zip 누락 — 모두 수정 + 회귀 테스트 있음
+- 2026-08-29 세션(가상 2기기 전 플로우 구동으로 검증, 실기기 미확인):
+  - profile 편집 UI(다이얼로그) + core 검증·저장
+  - D3 전체: schemaVersion 강제, 시크릿 규칙 외부화, i18n ko/en 전면 이관
+  - D4 전체: Update 스크립트, CHANGELOG, SECURITY.md + README 공개용 일반화
+  - 사용성 라운드: 중단된 Finish 의 CURRENT.md 무흔적화, 에이전트 실행 실패
+    복구 안내, Setup orphan 가드, CURRENT.md 기록 3개 상한, worktree 경로
+    표시, Show-Status 해석 라인 등 (§7 백로그 A/B/C 전부)
 
 ## 5. 아직 검증되지 않은 것 (다음 확인 항목)
 
@@ -84,6 +122,9 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
    사용자가 피드백 라운드 진행 중.
 3. 대형 실제 프로젝트(untracked 수천 개) 승격 후 일상 사용.
 4. `AgentContinuity-Setup.exe` 신규 PC(의존성 전무) 시나리오.
+5. 2026-08-29 세션 산출물의 실기기 확인: profile 편집 다이얼로그, `AC_LANG=en`
+   에서의 UI 표시(XAML `%key%` 치환), 새 Setup/Start/Status 출력, CURRENT.md
+   마커 기록의 실사용 가독성, Update-AgentContinuity 실제 설치본 대상 실행.
 
 ## 6. 알려진 제약·이슈
 
@@ -157,7 +198,8 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 pwsh tests/Run-Tests.ps1
 
 # 릴리스 발행: GitHub → Actions → Release → Run workflow → tag 에 vX.Y.Z 입력
-#  (테스트 42+개가 release gate; 통과해야 zip/exe/sha256 이 릴리스에 첨부됨)
+#  (전체 테스트가 release gate — 현재 71개; 통과해야 zip/exe/sha256 첨부)
+#  발행 전: AgentContinuity.psd1 의 ModuleVersion 을 태그와 맞출 것
 
 # 설치 exe 로컬 빌드 (Go 1.23+, linux/mac 에서 교차 컴파일)
 installer/build.sh vX.Y.Z
@@ -170,6 +212,9 @@ pwsh -ExecutionPolicy Bypass -File .\Update-AgentContinuity.ps1
 
 # 영어 UI/출력 확인
 $env:AC_LANG = 'en'   # 또는 config.json 에 "language": "en"
+
+# 커스텀 에이전트 CLI 경로 (미설치 시뮬레이션·비표준 설치 경로)
+$env:AC_CODEX_BIN = 'D:\tools\codex.exe'   # AC_CLAUDE_BIN 도 동일
 ```
 
 ## 9. 건드리면 안 되는 불변 규칙 (계획서 §17, ADR)
@@ -198,3 +243,11 @@ $env:AC_LANG = 'en'   # 또는 config.json 에 "language": "en"
 | `a23ab10`~`500fbe4` | Setup exe (payload 내장, 경로 선택), MIT |
 | `cb9833f` | UI 프로젝트 추가/경로 변경 (D2) |
 | `68527d3` | dirty 클론 승격 허용, profile 인지 preflight, 병렬 상태 뷰 |
+| `09f79e1` | 이 인수인계 문서 최초 작성 |
+| `2e049ba` | profile 편집 UI + core 검증·저장 (fail-closed) |
+| `00d5954` | schemaVersion 읽기 강제 검증 (D3) |
+| `ca9e65c` | 시크릿 규칙 secret-rules.json 외부화 (D3) |
+| `e43568b`~`ddccf62` | i18n ko/en 전면 이관 — 런처→core→bootstrap→UI (D3) |
+| `e25eb81` | Update-AgentContinuity + CHANGELOG + SECURITY.md (D4) |
+| `d46db47` | README 공개용 일반화 + 사용성 점검 백로그 |
+| `461f595` | 사용성 라운드: A1~A4 fail-closed 수정 + B5~B9/C10 마찰 제거 |
