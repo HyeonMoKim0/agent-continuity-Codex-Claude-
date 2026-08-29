@@ -73,8 +73,10 @@ function Get-AcLastTransaction {
     }
     if ($null -eq $best) { return @{ Record = $null; RawJson = $null; Hash = $null; TipSha = $tip } }
     $raw = Read-AcRefFile -CommitSha $tip -Path (Get-AcTransactionPath -ProjectId $ProjectId -Generation $best)
+    $record = $raw | ConvertFrom-Json
+    Assert-AcSchemaVersion -Document $record -Source "transaction gen=$best"
     return @{
-        Record  = ($raw | ConvertFrom-Json)
+        Record  = $record
         RawJson = $raw
         Hash    = (Get-AcTransactionRawHash $raw)
         TipSha  = $tip

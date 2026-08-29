@@ -21,10 +21,29 @@ function Initialize-AcHome {
 
 function Get-AcConfigPath { Join-Path (Get-AcHome) 'config/config.json' }
 
+$script:AcSchemaVersion = 1
+
+function Assert-AcSchemaVersion {
+    # D3: 더 새로운(알 수 없는) 버전의 기록을 잘못 해석한 채 진행하는 대신
+    # 읽기 시점에 중단한다. 기록 자체는 절대 고치지 않는다 (fail-closed).
+    param(
+        [Parameter(Mandatory)] $Document,
+        [Parameter(Mandatory)][string] $Source
+    )
+    if (@($Document.PSObject.Properties.Name) -notcontains 'schemaVersion') {
+        throw "$Source 에 schemaVersion 이 없습니다 — 손상되었거나 알 수 없는 형식이라 진행하지 않습니다."
+    }
+    if ([long]$Document.schemaVersion -ne $script:AcSchemaVersion) {
+        throw "$Source 의 schemaVersion=$($Document.schemaVersion) 은(는) 지원 버전($script:AcSchemaVersion)과 다릅니다. 도구를 업데이트한 뒤 다시 시도하세요."
+    }
+}
+
 function Get-AcConfig {
     $path = Get-AcConfigPath
     if (-not (Test-Path $path)) { return $null }
-    Get-Content -Raw -Path $path | ConvertFrom-Json
+    $config = Get-Content -Raw -Path $path | ConvertFrom-Json
+    Assert-AcSchemaVersion -Document $config -Source 'config.json'
+    return $config
 }
 
 function Save-AcConfig {

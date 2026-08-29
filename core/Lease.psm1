@@ -21,7 +21,9 @@ function Get-AcLease {
     if (-not $tip) { return @{ Lease = $null; TipSha = $null } }
     $raw = Read-AcRefFile -CommitSha $tip -Path 'lease.json'
     if (-not $raw) { return @{ Lease = $null; TipSha = $tip } }
-    return @{ Lease = ($raw | ConvertFrom-Json); TipSha = $tip }
+    $lease = $raw | ConvertFrom-Json
+    Assert-AcSchemaVersion -Document $lease -Source "lease($ProjectId)"
+    return @{ Lease = $lease; TipSha = $tip }
 }
 
 function Test-AcLeaseExpired {

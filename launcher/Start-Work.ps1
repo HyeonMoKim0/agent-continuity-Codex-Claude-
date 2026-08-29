@@ -141,7 +141,7 @@ try {
                 'degraded-version' {
                     Write-AcLog -Level WARN -Message "CLI 버전($($restore['Version']))이 allowlist 에 없어 세션 복원을 생략했습니다 (Git 핸드오프로 계속)."
                 }
-                { $_ -in @('missing-cipher', 'cipher-mismatch', 'corrupt') } {
+                { $_ -in @('missing-cipher', 'cipher-mismatch', 'corrupt', 'unsupported-schema') } {
                     Write-AcLog -Level WARN -Message "세션 스냅숏을 사용할 수 없습니다($($restore.Status)) — 로컬 세션은 건드리지 않았습니다."
                 }
                 default { Write-AcLog -Level INFO -Message "세션 복원 생략($($restore.Status))" }

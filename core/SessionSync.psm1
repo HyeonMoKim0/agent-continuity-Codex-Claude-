@@ -248,6 +248,8 @@ function Restore-AcSessionSnapshot {
         $payload = Join-Path $work 'payload'
         Expand-Archive -Path $zip -DestinationPath $payload -Force
         $manifest = Get-Content -Raw (Join-Path $payload 'manifest.json') | ConvertFrom-Json
+        try { Assert-AcSchemaVersion -Document $manifest -Source 'session manifest' }
+        catch { return @{ Status = 'unsupported-schema'; Reason = [string]$_ } }
         $incoming = Join-Path $payload 'session.jsonl'
 
         $incomingCheck = Test-AcJsonlIntegrity -Path $incoming

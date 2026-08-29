@@ -113,6 +113,7 @@ function Test-AcBackupIntegrity {
         $payload = Join-Path $work 'payload'
         Expand-Archive -Path $zip -DestinationPath $payload -Force
         $manifest = Get-Content -Raw (Join-Path $payload 'ac-manifest.json') | ConvertFrom-Json
+        Assert-AcSchemaVersion -Document $manifest -Source 'backup manifest'
         foreach ($f in $manifest.files) {
             $p = Join-Path $payload $f.path
             if (-not (Test-Path -LiteralPath $p)) { $problems.Add("누락: $($f.path)"); continue }
