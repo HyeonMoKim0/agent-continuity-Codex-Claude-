@@ -29,15 +29,15 @@ function Test-AcPreflight {
     $worktree = $Project.worktreePath
 
     if (-not (Test-Path (Join-Path $worktree '.git'))) {
-        return [pscustomobject]@{ Ok = $false; Issues = @("전용 worktree 가 없음: $worktree"); Dirty = @(); UnrelatedDirty = 0; LocalHead = $null; RemoteTip = $null; UnpushedAhead = 0 }
+        return [pscustomobject]@{ Ok = $false; Issues = @((Get-AcText 'gitsafety.issue.noWorktree' @($worktree))); Dirty = @(); UnrelatedDirty = 0; LocalHead = $null; RemoteTip = $null; UnpushedAhead = 0 }
     }
     $remote = (Invoke-AcGit -RepoPath $worktree -Arguments @('remote', 'get-url', 'origin')).Text.Trim()
     if ($remote -ne $Project.projectRemote) {
-        $issues.Add("origin remote 불일치: 등록=$($Project.projectRemote) 실제=$remote")
+        $issues.Add((Get-AcText 'gitsafety.issue.remoteMismatch' @($Project.projectRemote, $remote)))
     }
     $branch = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')).Text.Trim()
     if ($branch -ne $Project.workBranch) {
-        $issues.Add("현재 브랜치 불일치: 등록=$($Project.workBranch) 실제=$branch")
+        $issues.Add((Get-AcText 'gitsafety.issue.branchMismatch' @($Project.workBranch, $branch)))
     }
     $dirtyAll = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain', '--no-renames')).Output | Where-Object { $_ })
     $unrelated = 0
@@ -65,7 +65,7 @@ function Test-AcPreflight {
         Invoke-AcGit -RepoPath $worktree -Arguments @('fetch', '--quiet', 'origin', $Project.workBranch) | Out-Null
         $cnt = Invoke-AcGit -RepoPath $worktree -Arguments @('rev-list', '--count', "$remoteTip..$headSha") -AllowFail
         if ($cnt.ExitCode -eq 0) { $ahead = [int]$cnt.Text.Trim() }
-        if ($ahead -gt 0) { $issues.Add("로컬에 미전송 commit $ahead 개 존재 (Finish 누락 의심)") }
+        if ($ahead -gt 0) { $issues.Add((Get-AcText 'gitsafety.issue.unpushed' @($ahead))) }
     }
     [pscustomobject]@{
         Ok             = ($issues.Count -eq 0 -and $dirty.Count -eq 0)

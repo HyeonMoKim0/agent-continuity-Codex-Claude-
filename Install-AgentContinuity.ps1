@@ -17,8 +17,31 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# i18n (D3): PowerShell 5.1 에서도 동작해야 해서 core/Common.psm1 대신 자체
+# 경량 로더를 쓴다. 언어는 AC_LANG=en 일 때만 영어, 그 외 한국어. 리소스가
+# 없으면(불완전한 zip) 키 대신 한국어 원문이 아닌 키가 보이는 대신 실패하지
+# 않도록 키 자체로 폴백한다.
+$script:InstallText = $null
+function Get-InstallText {
+    param([string] $Key, [object[]] $FormatArgs = @())
+    if ($null -eq $script:InstallText) {
+        $script:InstallText = @{}
+        try {
+            $table = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'i18n/ko.psd1')
+            if ($env:AC_LANG -eq 'en') {
+                $overlay = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'i18n/en.psd1')
+                foreach ($k in $overlay.Keys) { $table[$k] = $overlay[$k] }
+            }
+            $script:InstallText = $table
+        } catch { }
+    }
+    $text = if ($script:InstallText.ContainsKey($Key)) { $script:InstallText[$Key] } else { $Key }
+    if ($FormatArgs.Count -gt 0) { return ($text -f $FormatArgs) }
+    return $text
+}
+
 if ($env:OS -ne 'Windows_NT') {
-    Write-Host '이 설치 스크립트는 Windows 전용입니다. 다른 OS 에서는 저장소를 clone 해 launcher/*.ps1 을 직접 사용하세요.'
+    Write-Host (Get-InstallText 'install.windowsOnly')
     exit 1
 }
 
@@ -27,32 +50,32 @@ function Test-Cmd { param([string] $Name) [bool](Get-Command $Name -ErrorAction 
 function Install-Dep {
     param([string] $Display, [string] $Cmd, [string] $WingetId)
     if (Test-Cmd $Cmd) { Write-Host ("  [OK]   {0}" -f $Display) -ForegroundColor Green; return $true }
-    Write-Host ("  [없음] {0}" -f $Display) -ForegroundColor Yellow
+    Write-Host (Get-InstallText 'install.dep.missing' @($Display)) -ForegroundColor Yellow
     if (-not (Test-Cmd 'winget')) {
-        Write-Host ("         winget 이 없어 자동 설치할 수 없습니다. 수동 설치: winget id = {0}" -f $WingetId)
+        Write-Host (Get-InstallText 'install.dep.noWinget' @($WingetId))
         return $false
     }
     $answer = 'N'
-    if ($NonInteractive) { $answer = 'Y' } else { $answer = Read-Host ("         지금 설치할까요? (winget install {0}) [Y/N]" -f $WingetId) }
+    if ($NonInteractive) { $answer = 'Y' } else { $answer = Read-Host (Get-InstallText 'install.dep.prompt' @($WingetId)) }
     if ($answer -match '^[Yy]') {
         & winget install --id $WingetId --source winget --accept-package-agreements --accept-source-agreements
-        Write-Host '         설치 후에는 새 터미널 창에서 인식됩니다.'
+        Write-Host (Get-InstallText 'install.dep.newTerminal')
         return $true
     }
     return $false
 }
 
 Write-Host ''
-Write-Host 'Agent Continuity 설치' -ForegroundColor Cyan
-Write-Host ("  원본: {0}" -f $PSScriptRoot)
-Write-Host ("  대상: {0}" -f $InstallDir)
+Write-Host (Get-InstallText 'install.title') -ForegroundColor Cyan
+Write-Host (Get-InstallText 'install.source' @($PSScriptRoot))
+Write-Host (Get-InstallText 'install.target' @($InstallDir))
 Write-Host ''
 
 # 1. 의존성 검사 --------------------------------------------------------------
-Write-Host '의존성 검사:'
+Write-Host (Get-InstallText 'install.depsHeader')
 $null = Install-Dep -Display 'git' -Cmd 'git' -WingetId 'Git.Git'
 $hasPwsh = Install-Dep -Display 'PowerShell 7 (pwsh)' -Cmd 'pwsh' -WingetId 'Microsoft.PowerShell'
-$null = Install-Dep -Display 'age (Phase 2 암호화용, 선택)' -Cmd 'age' -WingetId 'FiloSottile.age'
+$null = Install-Dep -Display (Get-InstallText 'install.dep.age') -Cmd 'age' -WingetId 'FiloSottile.age'
 
 # 2. 파일 복사 -----------------------------------------------------------------
 if (-not (Test-Path $InstallDir)) { New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null }
@@ -61,7 +84,7 @@ Get-ChildItem -Path $PSScriptRoot -Force | Where-Object { $exclude -notcontains 
     Copy-Item -Path $_.FullName -Destination $InstallDir -Recurse -Force
 }
 Write-Host ''
-Write-Host ("파일 복사 완료: {0}" -f $InstallDir) -ForegroundColor Green
+Write-Host (Get-InstallText 'install.copied' @($InstallDir)) -ForegroundColor Green
 
 # 3. 바로가기 ------------------------------------------------------------------
 if (-not $NoShortcuts) {
@@ -83,18 +106,18 @@ if (-not $NoShortcuts) {
         if (Test-Path $iconIco) { $lnk.IconLocation = ('{0},0' -f $iconIco) }
         $lnk.Save()
     }
-    Write-Host '바탕화면·시작 메뉴에 "Agent Continuity" 바로가기를 만들었습니다.' -ForegroundColor Green
+    Write-Host (Get-InstallText 'install.shortcuts') -ForegroundColor Green
 }
 
 # 4. 다음 단계 안내 ------------------------------------------------------------
 Write-Host ''
-Write-Host '다음 단계 (프로젝트 등록):' -ForegroundColor Cyan
+Write-Host (Get-InstallText 'install.nextSteps') -ForegroundColor Cyan
 Write-Host ('  pwsh -ExecutionPolicy Bypass -File "{0}" `' -f (Join-Path $InstallDir 'bootstrap\Setup-AgentContinuity.ps1'))
-Write-Host '    -MachineId <이 기기 이름> -VaultRemote <vault 저장소 URL> `'
-Write-Host '    -ProjectName <이름> -ProjectRemote <프로젝트 저장소 URL> -Agent codex'
+Write-Host (Get-InstallText 'install.nextArgs1')
+Write-Host (Get-InstallText 'install.nextArgs2')
 if (-not $hasPwsh) {
     Write-Host ''
-    Write-Host '주의: PowerShell 7 설치 후 새 터미널 창에서 위 명령을 실행하세요.' -ForegroundColor Yellow
+    Write-Host (Get-InstallText 'install.pwshNote') -ForegroundColor Yellow
 }
 Write-Host ''
-Write-Host '설치 완료.' -ForegroundColor Green
+Write-Host (Get-InstallText 'install.done') -ForegroundColor Green

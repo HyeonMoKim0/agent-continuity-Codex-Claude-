@@ -82,7 +82,7 @@ function Unprotect-AcSecret {
     $obj = $Envelope | ConvertFrom-Json
     switch ($obj.method) {
         'dpapi' {
-            if (-not $IsWindows) { throw 'DPAPI 로 보호된 키는 원래 Windows 기기에서만 복호화할 수 있습니다.' }
+            if (-not $IsWindows) { throw (Get-AcText 'crypto.err.dpapiWrongMachine') }
             $plain = [System.Security.Cryptography.ProtectedData]::Unprotect(
                 [Convert]::FromBase64String($obj.data), $null,
                 [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
@@ -90,7 +90,7 @@ function Unprotect-AcSecret {
         }
         'aes-gcm-fallback' {
             $paths = Get-AcIdentityPaths
-            if (-not (Test-Path $paths.AesKey)) { throw '키 파일이 없어 복호화할 수 없습니다.' }
+            if (-not (Test-Path $paths.AesKey)) { throw (Get-AcText 'crypto.err.noAesKey') }
             $key = [System.IO.File]::ReadAllBytes($paths.AesKey)
             $cipher = [Convert]::FromBase64String($obj.data)
             $plain = [byte[]]::new($cipher.Length)
@@ -100,7 +100,7 @@ function Unprotect-AcSecret {
             } finally { $aes.Dispose() }
             return [System.Text.Encoding]::UTF8.GetString($plain)
         }
-        default { throw "알 수 없는 보호 방식: $($obj.method)" }
+        default { throw (Get-AcText 'crypto.err.unknownMethod' @($obj.method)) }
     }
 }
 
@@ -110,12 +110,12 @@ function Unprotect-AcSecret {
 
 function New-AcAgeKeyPair {
     # Generates a keypair fully in memory (age-keygen stdout capture; no -o file).
-    if (-not (Test-AcAgeAvailable)) { throw 'age / age-keygen 을 찾을 수 없습니다. 먼저 설치하세요 (winget install FiloSottile.age).' }
+    if (-not (Test-AcAgeAvailable)) { throw (Get-AcText 'crypto.err.ageMissingInstall') }
     $out = & age-keygen 2>$null
     $lines = @($out | ForEach-Object { "$_" })
     $public = ($lines | Where-Object { $_ -match '^# public key: (age1.+)$' } | ForEach-Object { $Matches[1] } | Select-Object -First 1)
     $secret = ($lines | Where-Object { $_ -match '^AGE-SECRET-KEY-1' } | Select-Object -First 1)
-    if (-not $public -or -not $secret) { throw 'age-keygen 출력을 해석할 수 없습니다.' }
+    if (-not $public -or -not $secret) { throw (Get-AcText 'crypto.err.keygenParse') }
     @{ PublicKey = $public; SecretKey = $secret }
 }
 
@@ -129,13 +129,13 @@ function Initialize-AcCryptoIdentity {
     $pair = New-AcAgeKeyPair
     Protect-AcSecret -PlainText $pair.SecretKey | Set-Content -Path $paths.Protected -Encoding utf8
     $pair.PublicKey | Set-Content -Path $paths.Public -Encoding utf8
-    Write-AcLog -Level INFO -Message '새 age identity 를 생성하고 보호 저장했습니다.'
+    Write-AcLog -Level INFO -Message (Get-AcText 'crypto.log.identityCreated')
     return $pair.PublicKey
 }
 
 function Get-AcPublicKey {
     $paths = Get-AcIdentityPaths
-    if (-not (Test-Path $paths.Public)) { throw 'identity 가 없습니다. Enable-AgentContinuityPhase2.ps1 을 먼저 실행하세요.' }
+    if (-not (Test-Path $paths.Public)) { throw (Get-AcText 'crypto.err.noIdentity') }
     (Get-Content -Raw $paths.Public).Trim()
 }
 
@@ -171,7 +171,7 @@ function Invoke-AcWithIdentityFile {
     # shredded in `finally` (§7.2 원칙에 대한 최소 예외; README 에 명시).
     param([Parameter(Mandatory)][scriptblock] $Body)
     $paths = Get-AcIdentityPaths
-    if (-not (Test-Path $paths.Protected)) { throw 'identity 가 없습니다. Enable-AgentContinuityPhase2.ps1 을 먼저 실행하세요.' }
+    if (-not (Test-Path $paths.Protected)) { throw (Get-AcText 'crypto.err.noIdentity') }
     $secret = Unprotect-AcSecret -Envelope (Get-Content -Raw $paths.Protected)
     $idFile = Join-Path (Get-AcSecureTempDir) ("id-" + [Guid]::NewGuid().ToString('N'))
     try {
@@ -225,12 +225,12 @@ function Add-AcRecipient {
         [Parameter(Mandatory)][string] $Label,
         [Parameter(Mandatory)][string] $PublicKey
     )
-    if ($PublicKey -notmatch '^age1[0-9a-z]+$') { throw "age 공개키 형식이 아닙니다: $PublicKey" }
+    if ($PublicKey -notmatch '^age1[0-9a-z]+$') { throw (Get-AcText 'crypto.err.badPublicKey' @($PublicKey)) }
     $current = Get-AcRecipients
     $existing = @($current.Recipients | Where-Object { $_.Label -eq $Label })
     if ($existing.Count -gt 0) {
         if ($existing[0].PublicKey -eq $PublicKey) { return @{ Status = 'unchanged' } }
-        throw "label '$Label' 이 이미 다른 키로 등록되어 있습니다. 키 교체는 Remove 후 Add 로 명시적으로 하세요."
+        throw (Get-AcText 'crypto.err.labelExists' @($Label))
     }
     $list = @($current.Recipients) + @(@{ Label = $Label; PublicKey = $PublicKey; AddedAt = (Get-AcUtcNow) })
     Save-AcRecipients -Recipients $list -ParentSha $current.TipSha -Message "recipient add: $Label"
@@ -257,17 +257,17 @@ function Protect-AcFile {
         [Parameter(Mandatory)][string] $InputPath,
         [Parameter(Mandatory)][string] $OutputPath
     )
-    if (-not (Test-AcAgeAvailable)) { throw 'age 를 찾을 수 없습니다.' }
+    if (-not (Test-AcAgeAvailable)) { throw (Get-AcText 'crypto.err.ageMissing') }
     $recipients = (Get-AcRecipients).Recipients
-    if ($recipients.Count -lt 1) { throw '등록된 수신자가 없습니다. Enable-AgentContinuityPhase2.ps1 로 기기·복구키를 등록하세요.' }
+    if ($recipients.Count -lt 1) { throw (Get-AcText 'crypto.err.noRecipients') }
     if ($recipients.Count -lt 2) {
-        Write-AcLog -Level WARN -Message '수신자가 1개뿐입니다. 오프라인 복구키를 추가하지 않으면 키 분실 시 복구할 수 없습니다 (§7.6).'
+        Write-AcLog -Level WARN -Message (Get-AcText 'crypto.warn.singleRecipient')
     }
     $ageArgs = @('-e')
     foreach ($r in $recipients) { $ageArgs += @('-r', $r.PublicKey) }
     $ageArgs += @('-o', $OutputPath, $InputPath)
     & age @ageArgs 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $OutputPath)) { throw 'age 암호화 실패' }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $OutputPath)) { throw (Get-AcText 'crypto.err.encryptFailed') }
     (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPath).Hash.ToLowerInvariant()
 }
 
@@ -276,14 +276,14 @@ function Unprotect-AcFile {
         [Parameter(Mandatory)][string] $InputPath,
         [Parameter(Mandatory)][string] $OutputPath
     )
-    if (-not (Test-AcAgeAvailable)) { throw 'age 를 찾을 수 없습니다.' }
+    if (-not (Test-AcAgeAvailable)) { throw (Get-AcText 'crypto.err.ageMissing') }
     $result = Invoke-AcWithIdentityFile -Body {
         param($idFile)
         & age -d -i $idFile -o $OutputPath $InputPath 2>&1 | Out-Null
         $LASTEXITCODE
     }.GetNewClosure()
     if ($result -ne 0 -or -not (Test-Path $OutputPath)) {
-        throw '복호화 실패: 이 기기의 키가 수신자에 포함되지 않았거나 파일이 손상되었습니다. 암호문 원본은 보존됩니다.'
+        throw (Get-AcText 'crypto.err.decryptFailed')
     }
 }
 

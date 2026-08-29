@@ -41,11 +41,11 @@ function Get-AcSecretRules {
     $path = Get-AcSecretRulesPath
     if (Test-Path $path) {
         try { $custom = Get-Content -Raw $path | ConvertFrom-Json }
-        catch { throw "secret-rules.json 을 해석할 수 없습니다 — 스캔을 진행하지 않습니다: $_" }
+        catch { throw (Get-AcText 'secretrules.err.parse' @($_)) }
         Assert-AcSchemaVersion -Document $custom -Source 'secret-rules.json'
         foreach ($key in @($custom.PSObject.Properties.Name)) {
             if ($key -notin @('schemaVersion', 'fileNameRules', 'contentRules')) {
-                throw "secret-rules.json: 알 수 없는 항목 '$key' — 오타이면 규칙이 조용히 무시되므로 진행하지 않습니다."
+                throw (Get-AcText 'secretrules.err.unknownKey' @($key))
             }
         }
         $known = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -55,19 +55,19 @@ function Get-AcSecretRules {
             foreach ($entry in @($custom.$section)) {
                 foreach ($required in @('name', 'pattern')) {
                     if (@($entry.PSObject.Properties.Name) -notcontains $required) {
-                        throw "secret-rules.json ${section}: '$required' 가 없는 규칙이 있습니다."
+                        throw (Get-AcText 'secretrules.err.missingField' @($section, $required))
                     }
                 }
                 $name = [string]$entry.name
                 $pattern = [string]$entry.pattern
                 if (-not $name.Trim() -or -not $pattern.Trim()) {
-                    throw "secret-rules.json ${section}: name/pattern 은 비울 수 없습니다."
+                    throw (Get-AcText 'secretrules.err.emptyField' @($section))
                 }
                 if (-not $known.Add($name)) {
-                    throw "secret-rules.json ${section}: 규칙 이름 '$name' 이 이미 있습니다 — 기본 규칙은 바꾸거나 지울 수 없으니 다른 이름을 쓰세요."
+                    throw (Get-AcText 'secretrules.err.duplicateName' @($section, $name))
                 }
                 try { [regex]::new($pattern) | Out-Null }
-                catch { throw "secret-rules.json $section '$name': 정규식이 잘못되었습니다 — $_" }
+                catch { throw (Get-AcText 'secretrules.err.badRegex' @($section, $name, $_)) }
                 $rule = @{ Name = $name; Pattern = $pattern }
                 if ($section -eq 'fileNameRules') { $fileNameRules.Add($rule) } else { $contentRules.Add($rule) }
             }

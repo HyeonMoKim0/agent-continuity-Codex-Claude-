@@ -95,10 +95,10 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 - profile 편집은 UI 의 [profile 편집] 버튼 또는
   `%LOCALAPPDATA%\AgentContinuity\config\profiles\<projectId>.json` 직접 편집.
   UI 편집 대화상자는 아직 실기기 미확인.
-- i18n: 런처(Start/Finish/Recover/Show-Status)와 예외 화면은 `i18n/ko.psd1`,
-  `en.psd1` 리소스 기반 (기본 ko, `AC_LANG=en` 또는 config `language` 로 en).
-  **아직 한국어 하드코딩인 곳**: WPF UI, bootstrap 스크립트, core 모듈의
-  로그·Reason 문자열, keeper 로그.
+- i18n: 모든 사용자 노출 문자열이 `i18n/ko.psd1`(기준)·`en.psd1` 리소스 기반.
+  기본 ko, `AC_LANG=en` 또는 config `language` 로 en. UI XAML 라벨은 `%key%`
+  자리표시자를 `Expand-AcXamlText` 가 전처리. Install 스크립트는 PS 5.1
+  호환을 위해 자체 로더(`Get-InstallText`) 사용.
 - age CLI 특성상 복호화 순간 잠금 임시 폴더에 identity 파일이 생겼다 즉시
   파쇄됨 (§7.2 원칙의 최소 예외, README 보안 노트에 문서화).
 
@@ -116,9 +116,9 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
      transaction/backup manifest 읽기에 적용, 세션 복원은 `unsupported-schema` 로 강등.
    - ~~시크릿 규칙 외부화~~: `<home>/config/secret-rules.json` (추가 전용,
      기본 규칙 삭제·대체 불가, 잘못된 파일은 스캔 중단). `schemas/secret-rules.schema.json` 참조.
-   - i18n: 인프라(`Get-AcText`/`Get-AcLanguage`) + 런처·예외 화면 이관 완료.
-     **잔여**: WPF UI(XAML 라벨 포함), bootstrap, core 로그·Reason, keeper 로그.
-     en 키 완전성·자리표시자 일치는 I18n.Tests 가 강제한다.
+   - ~~i18n~~: 전체 이관 완료 — 런처·예외 화면·core 메시지/Reason·bootstrap·
+     installer·WPF UI(XAML 포함)·keeper 로그. en 키 완전성·자리표시자 일치는
+     I18n.Tests 가 강제. **UI 의 en 표시는 실기기(Windows)에서 미확인.**
 4. **D4** — `Update-AgentContinuity`(진행 중 lease 있으면 거부), CHANGELOG, SECURITY.md.
 5. 공개 전환 시: README 의 개인 URL 일반화, 위협 모델 문서.
 6. Phase 4(데스크톱 앱 대화 목록 통합)는 **공식 API 없이는 착수 금지** (ADR-006).

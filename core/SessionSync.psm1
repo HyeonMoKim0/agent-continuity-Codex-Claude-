@@ -46,13 +46,13 @@ function Test-AcJsonlIntegrity {
     # the file's SHA-256 for the manifest.
     param([Parameter(Mandatory)][string] $Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return @{ Valid = $false; Reason = '파일 없음' }
+        return @{ Valid = $false; Reason = (Get-AcText 'jsonl.reason.missing') }
     }
     $lines = [System.IO.File]::ReadAllLines($Path)
     $nonEmpty = @($lines | Where-Object { $_.Trim() })
-    if ($nonEmpty.Count -eq 0) { return @{ Valid = $false; Reason = '빈 파일' } }
+    if ($nonEmpty.Count -eq 0) { return @{ Valid = $false; Reason = (Get-AcText 'jsonl.reason.empty') } }
     try { $nonEmpty[-1] | ConvertFrom-Json | Out-Null }
-    catch { return @{ Valid = $false; Reason = '마지막 행이 완전한 JSON 이 아님 (절단 의심)' } }
+    catch { return @{ Valid = $false; Reason = (Get-AcText 'jsonl.reason.truncated') } }
     @{
         Valid     = $true
         LineCount = $nonEmpty.Count
@@ -254,7 +254,7 @@ function Restore-AcSessionSnapshot {
 
         $incomingCheck = Test-AcJsonlIntegrity -Path $incoming
         if (-not $incomingCheck.Valid -or $incomingCheck.Sha256 -ne $manifest.sha256 -or $incomingCheck.LineCount -ne [int]$manifest.lineCount) {
-            return @{ Status = 'corrupt'; Reason = $(if ($incomingCheck.Valid) { 'manifest 불일치' } else { $incomingCheck.Reason }) }
+            return @{ Status = 'corrupt'; Reason = $(if ($incomingCheck.Valid) { Get-AcText 'restore.reason.manifestMismatch' } else { $incomingCheck.Reason }) }
         }
 
         $target = if ($agent -eq 'codex') { Resolve-AcCodexRestorePath -RelativePath $manifest.relativePath }
@@ -287,7 +287,7 @@ function Restore-AcSessionSnapshot {
             $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $tmpTarget).Hash.ToLowerInvariant()
             if ($h -ne $manifest.sha256) {
                 Remove-Item -LiteralPath $tmpTarget -Force -ErrorAction SilentlyContinue
-                return @{ Status = 'corrupt'; Reason = '복원 파일 hash 재검증 실패' }
+                return @{ Status = 'corrupt'; Reason = (Get-AcText 'restore.reason.rehashFailed') }
             }
             Move-Item -LiteralPath $tmpTarget -Destination $target -Force
             $status = 'restored'

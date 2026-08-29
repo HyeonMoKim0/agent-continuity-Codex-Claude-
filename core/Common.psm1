@@ -31,10 +31,10 @@ function Assert-AcSchemaVersion {
         [Parameter(Mandatory)][string] $Source
     )
     if (@($Document.PSObject.Properties.Name) -notcontains 'schemaVersion') {
-        throw "$Source 에 schemaVersion 이 없습니다 — 손상되었거나 알 수 없는 형식이라 진행하지 않습니다."
+        throw (Get-AcText 'common.err.schemaMissing' @($Source))
     }
     if ([long]$Document.schemaVersion -ne $script:AcSchemaVersion) {
-        throw "$Source 의 schemaVersion=$($Document.schemaVersion) 은(는) 지원 버전($script:AcSchemaVersion)과 다릅니다. 도구를 업데이트한 뒤 다시 시도하세요."
+        throw (Get-AcText 'common.err.schemaUnsupported' @($Source, $Document.schemaVersion, $script:AcSchemaVersion))
     }
 }
 
@@ -55,9 +55,9 @@ function Save-AcConfig {
 function Get-AcProject {
     param([Parameter(Mandatory)][string] $Name)
     $config = Get-AcConfig
-    if (-not $config) { throw "설정이 없습니다. Setup-AgentContinuity.ps1 을 먼저 실행하세요." }
+    if (-not $config) { throw (Get-AcText 'common.err.noConfig') }
     $project = $config.projects | Where-Object { $_.name -eq $Name }
-    if (-not $project) { throw "등록되지 않은 프로젝트: $Name" }
+    if (-not $project) { throw (Get-AcText 'common.err.unknownProject' @($Name)) }
     return $project
 }
 
@@ -115,7 +115,7 @@ function Get-AcProfilePath {
 function Read-AcProfile {
     param([Parameter(Mandatory)][string] $ProjectId)
     $path = Get-AcProfilePath -ProjectId $ProjectId
-    if (-not (Test-Path $path)) { throw "프로젝트 profile 이 없습니다: $path" }
+    if (-not (Test-Path $path)) { throw (Get-AcText 'common.err.noProfile' @($path)) }
     Get-Content -Raw -Path $path | ConvertFrom-Json
 }
 
@@ -127,25 +127,25 @@ function Test-AcProfileValue {
     $violations = [System.Collections.Generic.List[string]]::new()
     $known = @('allowedGlobs', 'excludedGlobs', 'trackedOnly', 'maxDiffSizeBytes')
     foreach ($name in $ProjectProfile.PSObject.Properties.Name) {
-        if ($name -cnotin $known) { $violations.Add("알 수 없는 속성: $name") }
+        if ($name -cnotin $known) { $violations.Add((Get-AcText 'profile.err.unknownProp' @($name))) }
     }
     foreach ($name in $known) {
-        if (-not ($ProjectProfile.PSObject.Properties.Name -ccontains $name)) { $violations.Add("필수 속성 누락: $name") }
+        if (-not ($ProjectProfile.PSObject.Properties.Name -ccontains $name)) { $violations.Add((Get-AcText 'profile.err.missingProp' @($name))) }
     }
     if ($violations.Count -gt 0) { return $violations }
 
     $allowed = @($ProjectProfile.allowedGlobs)
-    if ($allowed.Count -lt 1) { $violations.Add('allowedGlobs 는 최소 1개 필요합니다') }
+    if ($allowed.Count -lt 1) { $violations.Add((Get-AcText 'profile.err.allowedMin')) }
     foreach ($g in $allowed) {
-        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add('allowedGlobs 에 빈 항목이 있습니다') }
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add((Get-AcText 'profile.err.allowedEmptyItem')) }
     }
     foreach ($g in @($ProjectProfile.excludedGlobs)) {
-        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add('excludedGlobs 에 빈 항목이 있습니다') }
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add((Get-AcText 'profile.err.excludedEmptyItem')) }
     }
-    if (-not ($ProjectProfile.trackedOnly -is [bool])) { $violations.Add('trackedOnly 는 true/false 여야 합니다') }
+    if (-not ($ProjectProfile.trackedOnly -is [bool])) { $violations.Add((Get-AcText 'profile.err.trackedOnlyBool')) }
     $maxBytes = $ProjectProfile.maxDiffSizeBytes
     if (-not ($maxBytes -is [int] -or $maxBytes -is [long]) -or [long]$maxBytes -lt 1) {
-        $violations.Add('maxDiffSizeBytes 는 1 이상의 정수여야 합니다')
+        $violations.Add((Get-AcText 'profile.err.maxBytes'))
     }
     return $violations
 }
@@ -157,7 +157,7 @@ function Save-AcProfile {
     )
     $violations = Test-AcProfileValue -ProjectProfile $ProjectProfile
     if (@($violations).Count -gt 0) {
-        throw ("profile 검증 실패 — 저장하지 않았습니다:`n" + (@($violations) -join "`n"))
+        throw ((Get-AcText 'profile.err.saveFailed') + "`n" + (@($violations) -join "`n"))
     }
     $path = Get-AcProfilePath -ProjectId $ProjectId
     New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
@@ -170,7 +170,7 @@ function Save-AcProfile {
     $tmp = "$path.tmp"
     $ordered | ConvertTo-Json | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $path -Force
-    Write-AcLog -Level INFO -Message "profile 저장: $ProjectId (allowedGlobs $(@($ProjectProfile.allowedGlobs).Count)개)"
+    Write-AcLog -Level INFO -Message (Get-AcText 'profile.log.saved' @($ProjectId, @($ProjectProfile.allowedGlobs).Count))
 }
 
 function Write-AcLog {
@@ -233,7 +233,7 @@ function Invoke-AcGit {
         Text     = ($lines -join "`n")
     }
     if ($code -ne 0 -and -not $AllowFail) {
-        throw "git $($Arguments -join ' ') 실패 (exit $code): $($result.Text)"
+        throw (Get-AcText 'common.err.gitFailed' @(($Arguments -join ' '), $code, $result.Text))
     }
     return $result
 }
@@ -249,7 +249,7 @@ function Get-AcShaFromOutput {
     # bare sha.
     param([Parameter(Mandatory)] $GitResult)
     $sha = @($GitResult.Output | Where-Object { $_ -match '^[0-9a-f]{40,64}$' }) | Select-Object -Last 1
-    if (-not $sha) { throw "git 출력에서 object id 를 찾지 못했습니다: $($GitResult.Text)" }
+    if (-not $sha) { throw (Get-AcText 'common.err.noSha' @($GitResult.Text)) }
     return $sha
 }
 
@@ -313,7 +313,7 @@ function Save-AcRefBlob {
         $proc.WaitForExit()
         if ($proc.ExitCode -ne 0) {
             Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-            throw "blob 추출 실패: $stderr"
+            throw (Get-AcText 'common.err.blobExtract' @($stderr))
         }
     } finally {
         $proc.Dispose()
@@ -455,7 +455,7 @@ function Get-AcIconPath {
     if (Test-Path $ico) { return $ico }
     if (Test-Path $png) {
         try { return (Convert-AcPngToIcon -PngPath $png -IcoPath $ico) }
-        catch { Write-AcLog -Level WARN -Message "아이콘 변환 실패: $_"; return $null }
+        catch { Write-AcLog -Level WARN -Message (Get-AcText 'common.warn.iconConvert' @($_)); return $null }
     }
     return $null
 }

@@ -33,21 +33,21 @@ function Read-IfMissing {
 
 # 1. GitHub / git 상태 검사
 $gitVersion = (& git --version) 2>&1
-if ($LASTEXITCODE -ne 0) { throw 'git 을 찾을 수 없습니다. 먼저 설치하세요.' }
+if ($LASTEXITCODE -ne 0) { throw (Get-AcText 'setup.err.noGit') }
 Write-Host "git: $gitVersion"
 
 # 2. 기기 이름 등록
-$MachineId = Read-IfMissing $MachineId '기기 이름 (예: desktop-main)'
+$MachineId = Read-IfMissing $MachineId (Get-AcText 'setup.prompt.machine')
 # 3~4. 저장소·연속성 vault·브랜치·에이전트
-$VaultRemote = Read-IfMissing $VaultRemote 'agent-continuity 비공개 저장소 URL (vault)'
-$ProjectName = Read-IfMissing $ProjectName '프로젝트 이름'
-$ProjectRemote = Read-IfMissing $ProjectRemote '프로젝트 저장소 URL'
+$VaultRemote = Read-IfMissing $VaultRemote (Get-AcText 'setup.prompt.vault')
+$ProjectName = Read-IfMissing $ProjectName (Get-AcText 'setup.prompt.projectName')
+$ProjectRemote = Read-IfMissing $ProjectRemote (Get-AcText 'setup.prompt.projectRemote')
 if (-not $WorktreeParent) { $WorktreeParent = Join-Path (Get-AcHome) 'worktrees' }
 
 Initialize-AcHome | Out-Null
 Initialize-AcVault -RemoteUrl $VaultRemote | Out-Null
 $vaultCheck = Invoke-AcGit -RepoPath (Get-AcVaultPath) -Arguments @('ls-remote', 'origin') -AllowFail
-if ($vaultCheck.ExitCode -ne 0) { throw "vault 저장소에 접근할 수 없습니다: $($vaultCheck.Text)" }
+if ($vaultCheck.ExitCode -ne 0) { throw (Get-AcText 'setup.err.vaultAccess' @($vaultCheck.Text)) }
 
 $projectId = Get-AcProjectId -Remote $ProjectRemote -Branch $WorkBranch
 $worktree = if ($WorktreePath) { $WorktreePath } else { Join-Path $WorktreeParent $ProjectName }
@@ -57,7 +57,7 @@ if (Test-Path (Join-Path $worktree '.git')) {
     # 기존 클론 승격: 등록 전에 읽기 전용 검증부터 통과해야 한다.
     $actualRemote = (Invoke-AcGit -RepoPath $worktree -Arguments @('remote', 'get-url', 'origin') -AllowFail)
     if ($actualRemote.ExitCode -ne 0 -or $actualRemote.Text.Trim() -ne $ProjectRemote) {
-        throw "승격 불가: $worktree 의 origin($($actualRemote.Text.Trim()))이 지정한 프로젝트 저장소와 다릅니다."
+        throw (Get-AcText 'setup.err.adoptRemote' @($worktree, $actualRemote.Text.Trim()))
     }
     $currentBranch = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')).Text.Trim()
     if ($currentBranch -ne $WorkBranch) {
@@ -68,7 +68,7 @@ if (Test-Path (Join-Path $worktree '.git')) {
             # 기존 브랜치로의 전환은 파일이 바뀔 수 있으므로 클린 상태를 요구한다.
             $dirtyNow = @((Invoke-AcGit -RepoPath $worktree -Arguments @('status', '--porcelain')).Output | Where-Object { $_ })
             if ($dirtyNow.Count -gt 0) {
-                throw "승격 불가: 기존 '$WorkBranch' 브랜치로 전환해야 하지만 커밋되지 않은 변경이 $($dirtyNow.Count)개 있습니다. 먼저 commit/stash 로 정리하세요 (자동으로 건드리지 않습니다)."
+                throw (Get-AcText 'setup.err.adoptDirtySwitch' @($WorkBranch, $dirtyNow.Count))
             }
             if ($hasLocal) {
                 Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', $WorkBranch) | Out-Null
@@ -98,15 +98,15 @@ if (Test-Path (Join-Path $worktree '.git')) {
             Invoke-AcGit -RepoPath $worktree -Arguments @('commit', '-m', 'chore: seed agent handoff documents') | Out-Null
             Invoke-AcGit -RepoPath $worktree -Arguments @('push', '-u', 'origin', $WorkBranch) | Out-Null
         } else {
-            Write-Host '주의: 원격 브랜치가 로컬보다 앞서 있어 핸드오프 문서 시드를 생략했습니다. 첫 작업 시작 시 원격 상태를 받아옵니다.' -ForegroundColor Yellow
+            Write-Host (Get-AcText 'setup.warn.seedSkipped') -ForegroundColor Yellow
         }
     }
-    Write-Host "기존 클론을 전용 worktree 로 승격했습니다: $worktree" -ForegroundColor Green
-    Write-Host "계약: 이 폴더의 allowedGlobs 안 변경은 '종료·인계' 때 자동 커밋됩니다 (§4.2)." -ForegroundColor Yellow
+    Write-Host (Get-AcText 'setup.adopted' @($worktree)) -ForegroundColor Green
+    Write-Host (Get-AcText 'setup.adoptedContract') -ForegroundColor Yellow
 }
 if (-not (Test-Path (Join-Path $worktree '.git'))) {
     if ((Test-Path $worktree) -and @(Get-ChildItem -Force $worktree -ErrorAction SilentlyContinue).Count -gt 0) {
-        throw "지정한 경로가 git 저장소가 아닌데 비어 있지도 않습니다: $worktree`n기존 파일을 보호하기 위해 여기에 클론하지 않습니다. 빈 폴더 또는 이 프로젝트의 기존 클론을 지정하세요."
+        throw ((Get-AcText 'setup.err.nonEmptyDir' @($worktree)) + "`n" + (Get-AcText 'setup.err.nonEmptyDirHint'))
     }
     New-Item -ItemType Directory -Path $worktree -Force | Out-Null
     Invoke-AcGit -RepoPath $worktree -Arguments @('init', '.') | Out-Null
@@ -152,7 +152,7 @@ if (-not (Test-Path $profilePath)) {
         maxDiffSizeBytes = 52428800
     })
 }
-Write-Host "profile: $profilePath (allowedGlobs 등을 검토하세요)"
+Write-Host (Get-AcText 'setup.profileNote' @($profilePath))
 
 # 6. 민감도 정책 (Phase 1 기본값: 원격 제어 허용 안 함, 세션 운반 비활성)
 # 7. Phase 2 키 교환은 아직 비활성.
@@ -193,9 +193,9 @@ if ($IsWindows -and -not $SkipShortcuts) {
     $shell = New-Object -ComObject WScript.Shell
     $iconPath = Get-AcIconPath -ToolRoot $root   # assets/icon.png → .ico 자동 변환
     $entries = @(
-        @{ Name = "작업 시작 - $ProjectName";  Script = 'launcher/Start-Work.ps1' }
-        @{ Name = "종료·인계 - $ProjectName";  Script = 'launcher/Finish-Work.ps1' }
-        @{ Name = "상태 확인 - $ProjectName";  Script = 'launcher/Show-Status.ps1' }
+        @{ Name = (Get-AcText 'setup.shortcut.start' @($ProjectName));  Script = 'launcher/Start-Work.ps1' }
+        @{ Name = (Get-AcText 'setup.shortcut.finish' @($ProjectName));  Script = 'launcher/Finish-Work.ps1' }
+        @{ Name = (Get-AcText 'setup.shortcut.status' @($ProjectName));  Script = 'launcher/Show-Status.ps1' }
     )
     foreach ($e in $entries) {
         $lnk = $shell.CreateShortcut((Join-Path $desktop "$($e.Name).lnk"))
@@ -210,7 +210,7 @@ if ($IsWindows -and -not $SkipShortcuts) {
     $uiLnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $root 'ui/AgentContinuity-Ui.ps1')`""
     if ($iconPath) { $uiLnk.IconLocation = "$iconPath,0" }
     $uiLnk.Save()
-    Write-Host '바탕화면 바로가기를 생성했습니다 (Agent Continuity UI 포함).'
+    Write-Host (Get-AcText 'setup.shortcutsCreated')
     if ($AutoStartUi) {
         $startup = [Environment]::GetFolderPath('Startup')
         $autoLnk = $shell.CreateShortcut((Join-Path $startup 'Agent Continuity.lnk'))
@@ -218,13 +218,13 @@ if ($IsWindows -and -not $SkipShortcuts) {
         $autoLnk.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$(Join-Path $root 'ui/AgentContinuity-Ui.ps1')`""
         if ($iconPath) { $autoLnk.IconLocation = "$iconPath,0" }
         $autoLnk.Save()
-        Write-Host 'Windows 로그인 시 UI 자동 실행이 등록되었습니다 (시작프로그램).'
+        Write-Host (Get-AcText 'setup.autostart')
     }
 }
 
 # 9. 자가진단
 & (Join-Path $root 'bootstrap/Test-AgentContinuity.ps1') -ProjectName $ProjectName
-if ($LASTEXITCODE -ne 0) { Write-Host '자가진단 실패' -ForegroundColor Red; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host (Get-AcText 'setup.selfTestFail') -ForegroundColor Red; exit 1 }
 Write-Host ''
-Write-Host "설정 완료: $ProjectName ($projectId)" -ForegroundColor Green
+Write-Host (Get-AcText 'setup.done' @($ProjectName, $projectId)) -ForegroundColor Green
 exit 0
