@@ -143,16 +143,14 @@ if (-not (Test-Path (Join-Path $worktree '.git'))) {
 }
 
 # 5. profile 검토·저장 (§4.2 기본값)
-$profileDir = Join-Path (Get-AcHome) 'config/profiles'
-New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
-$profilePath = Join-Path $profileDir "$projectId.json"
+$profilePath = Get-AcProfilePath -ProjectId $projectId
 if (-not (Test-Path $profilePath)) {
-    [ordered]@{
+    Save-AcProfile -ProjectId $projectId -ProjectProfile ([ordered]@{
         allowedGlobs     = @('src/**', 'docs/agent-handoff/**')
         excludedGlobs    = @('**/.env*', '**/Library/**', '**/Build/**')
         trackedOnly      = $false
         maxDiffSizeBytes = 52428800
-    } | ConvertTo-Json | Set-Content -Path $profilePath -Encoding utf8
+    })
 }
 Write-Host "profile: $profilePath (allowedGlobs 등을 검토하세요)"
 

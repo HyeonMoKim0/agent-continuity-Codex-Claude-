@@ -31,7 +31,7 @@ foreach ($m in @('Common', 'Lease', 'Transaction')) {
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Agent Continuity" Width="760" Height="620" MinWidth="620" MinHeight="480"
+        Title="Agent Continuity" Width="760" Height="660" MinWidth="620" MinHeight="520"
         WindowStartupLocation="CenterScreen" FontSize="13">
   <Grid Margin="12">
     <Grid.RowDefinitions>
@@ -60,12 +60,13 @@ $xaml = @'
              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
              TextWrapping="NoWrap" Background="#1E1E1E" Foreground="#DDDDDD"/>
 
-    <UniformGrid Grid.Row="4" Rows="2" Columns="3" Margin="0,10,0,0">
+    <UniformGrid Grid.Row="4" Rows="3" Columns="3" Margin="0,10,0,0">
       <Button x:Name="BtnStart" Content="작업 시작" Height="40" Margin="0,0,6,6" FontWeight="Bold"/>
       <Button x:Name="BtnFinish" Content="종료·인계" Height="40" Margin="0,0,6,6" FontWeight="Bold"/>
       <Button x:Name="BtnRecover" Content="복구 센터" Height="40" Margin="0,0,0,6"/>
-      <Button x:Name="BtnAddProject" Content="프로젝트 추가" Height="40" Margin="0,0,6,0"/>
-      <Button x:Name="BtnMoveWorktree" Content="worktree 경로 변경" Height="40" Margin="0,0,6,0"/>
+      <Button x:Name="BtnAddProject" Content="프로젝트 추가" Height="40" Margin="0,0,6,6"/>
+      <Button x:Name="BtnMoveWorktree" Content="worktree 경로 변경" Height="40" Margin="0,0,6,6"/>
+      <Button x:Name="BtnEditProfile" Content="profile 편집" Height="40" Margin="0,0,0,6"/>
       <Button x:Name="BtnTray" Content="트레이로 최소화" Height="40"/>
     </UniformGrid>
   </Grid>
@@ -140,8 +141,40 @@ $projectXaml = @'
 </Window>
 '@
 
+$profileXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="profile 편집" Width="560" Height="520" WindowStartupLocation="CenterOwner" FontSize="13">
+  <Grid Margin="12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <TextBlock Grid.Row="0" Text="allowedGlobs — 인계에 포함할 경로 (한 줄에 하나, 최소 1개)" Margin="0,0,0,4"/>
+    <TextBox Grid.Row="1" x:Name="TxtAllowed" AcceptsReturn="True" FontFamily="Consolas"
+             VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" Margin="0,0,0,8"/>
+    <TextBlock Grid.Row="2" Text="excludedGlobs — 항상 제외할 경로 (한 줄에 하나, 비워도 됨)" Margin="0,0,0,4"/>
+    <TextBox Grid.Row="3" x:Name="TxtExcluded" AcceptsReturn="True" FontFamily="Consolas"
+             VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" Margin="0,0,0,8"/>
+    <CheckBox Grid.Row="4" x:Name="ChkTrackedOnly" Content="trackedOnly — git 이 이미 추적 중인 파일만 인계" Margin="0,0,0,8"/>
+    <DockPanel Grid.Row="5" Margin="0,0,0,8">
+      <TextBlock Text="maxDiffSizeBytes (변경 총량 상한, 바이트):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+      <TextBox x:Name="TxtMaxBytes" FontFamily="Consolas"/>
+    </DockPanel>
+    <TextBlock Grid.Row="6" TextWrapping="Wrap" Foreground="#666666" Margin="0,0,0,8"
+               Text="profile 은 이 기기에만 저장되며 인계(Finish) 커밋에 포함되지 않습니다 (plan §4.2). 저장한 내용은 다음 작업 시작·종료부터 적용됩니다. 검증에 실패하면 아무것도 저장되지 않습니다."/>
+    <UniformGrid Grid.Row="7" Columns="2">
+      <Button x:Name="BtnSave" Content="저장" Height="34" Margin="0,0,6,0" FontWeight="Bold"/>
+      <Button x:Name="BtnCancel" Content="취소" Height="34"/>
+    </UniformGrid>
+  </Grid>
+</Window>
+'@
+
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
-foreach ($name in @('CmbProject', 'BtnRefresh', 'TxtStatus', 'Banner', 'TxtBanner', 'TxtLog', 'BtnStart', 'BtnFinish', 'BtnRecover', 'BtnAddProject', 'BtnMoveWorktree', 'BtnTray')) {
+foreach ($name in @('CmbProject', 'BtnRefresh', 'TxtStatus', 'Banner', 'TxtBanner', 'TxtLog', 'BtnStart', 'BtnFinish', 'BtnRecover', 'BtnAddProject', 'BtnMoveWorktree', 'BtnEditProfile', 'BtnTray')) {
     Set-Variable -Name $name -Value $window.FindName($name)
 }
 
@@ -230,7 +263,7 @@ $timer.Add_Tick({
         $code = $script:CurrentProc.ExitCode
         $script:CurrentProc = $null
         $timer.Stop()
-        foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree)) { $b.IsEnabled = $true }
+        foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree, $BtnEditProfile)) { $b.IsEnabled = $true }
         if ($code -eq 0) { Set-Banner green "$($script:RunningLabel) 완료" }
         else { Set-Banner red "$($script:RunningLabel) 중단 (코드 $code) — 로그의 원인·보존 위치·권장 행동을 확인하세요" }
         if ($script:AfterExit) {
@@ -260,7 +293,7 @@ function Start-LauncherProcess {
     Set-Banner yellow "$Label 실행 중..."
     $script:RunningLabel = $Label
     $script:AfterExit = $OnExit
-    foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree)) { $b.IsEnabled = $false }
+    foreach ($b in @($BtnStart, $BtnFinish, $BtnRecover, $BtnRefresh, $BtnAddProject, $BtnMoveWorktree, $BtnEditProfile)) { $b.IsEnabled = $false }
 
     # 한국어 Windows 의 기본 콘솔 코드페이지(CP949)로 인한 로그 깨짐 방지:
     # 자식 pwsh 가 UTF-8 로 출력하도록 -Command 래퍼에서 인코딩을 고정한다.
@@ -420,6 +453,57 @@ function Show-ProjectDialog {
 }
 
 # ---------------------------------------------------------------------------
+# profile editor (§7-2: allowedGlobs/excludedGlobs 편집)
+# ---------------------------------------------------------------------------
+
+function Show-ProfileDialog {
+    # profile 은 로컬 파일이라 launcher 를 거치지 않고 core 의 검증·저장 함수를
+    # 직접 쓴다. 검증 실패 시 기존 파일은 그대로 남는다 (fail-closed).
+    $project = Get-SelectedProject
+    if (-not $project) { Set-Banner red '프로젝트를 선택하세요'; return }
+    try { $acProfile = Read-AcProfile -ProjectId $project.projectId }
+    catch { Set-Banner red "profile 을 읽지 못했습니다: $_"; return }
+
+    $dlg = [Windows.Markup.XamlReader]::Parse($profileXaml)
+    $dlg.Owner = $window
+    $dlg.Title = "profile 편집 — $($project.name)"
+    $txtAllowed = $dlg.FindName('TxtAllowed'); $txtExcluded = $dlg.FindName('TxtExcluded')
+    $chkTracked = $dlg.FindName('ChkTrackedOnly'); $txtMaxBytes = $dlg.FindName('TxtMaxBytes')
+    $txtAllowed.Text = (@($acProfile.allowedGlobs) -join "`r`n")
+    $txtExcluded.Text = (@($acProfile.excludedGlobs) -join "`r`n")
+    $chkTracked.IsChecked = [bool]$acProfile.trackedOnly
+    $txtMaxBytes.Text = [string]$acProfile.maxDiffSizeBytes
+
+    $dlg.FindName('BtnCancel').Add_Click({ $dlg.Close() })
+    $dlg.FindName('BtnSave').Add_Click({
+        $maxBytes = 0L
+        if (-not [long]::TryParse($txtMaxBytes.Text.Trim(), [ref]$maxBytes)) {
+            [System.Windows.MessageBox]::Show($dlg, 'maxDiffSizeBytes 는 정수여야 합니다.', 'Agent Continuity',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
+            return
+        }
+        $toLines = { param($text) @($text -split "\r?\n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+        $candidate = [pscustomobject]@{
+            allowedGlobs     = & $toLines $txtAllowed.Text
+            excludedGlobs    = & $toLines $txtExcluded.Text
+            trackedOnly      = [bool]$chkTracked.IsChecked
+            maxDiffSizeBytes = $maxBytes
+        }
+        try {
+            Save-AcProfile -ProjectId $project.projectId -ProjectProfile $candidate
+        } catch {
+            [System.Windows.MessageBox]::Show($dlg, [string]$_, 'Agent Continuity',
+                [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
+            return
+        }
+        $dlg.Close()
+        Set-Banner green "profile 저장됨 — 다음 작업 시작·종료부터 적용됩니다"
+        Update-StatusPanel
+    })
+    $dlg.ShowDialog() | Out-Null
+}
+
+# ---------------------------------------------------------------------------
 # tray icon
 # ---------------------------------------------------------------------------
 
@@ -459,6 +543,7 @@ $BtnFinish.Add_Click({ Start-LauncherProcess -Label '종료·인계' -ScriptRel 
 $BtnRecover.Add_Click({ Show-RecoveryDialog })
 $BtnAddProject.Add_Click({ Show-ProjectDialog -Mode Add })
 $BtnMoveWorktree.Add_Click({ Show-ProjectDialog -Mode Move })
+$BtnEditProfile.Add_Click({ Show-ProfileDialog })
 $BtnTray.Add_Click({
     $tray.Visible = $true
     $window.Hide()

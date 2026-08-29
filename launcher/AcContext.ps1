@@ -23,9 +23,7 @@ function Get-AcAgentStatePath {
 
 function Get-AcProjectProfile {
     param([Parameter(Mandatory)] $Project)
-    $path = Join-Path (Get-AcHome) "config/profiles/$($Project.projectId).json"
-    if (-not (Test-Path $path)) { throw "프로젝트 profile 이 없습니다: $path" }
-    Get-Content -Raw $path | ConvertFrom-Json
+    Read-AcProfile -ProjectId $Project.projectId
 }
 
 function Write-AcBanner {

@@ -1,7 +1,7 @@
 # Agent Continuity — 개발 인수인계 문서
 
 > 이 문서는 이 프로젝트의 개발을 이어받는 사람(또는 새 AI 세션)을 위한 것이다.
-> 마지막 갱신: 2026-08-28 · 기준 커밋: `68527d3` · 테스트: 44/44 green
+> 마지막 갱신: 2026-08-29 · 테스트: 48/48 green
 
 ---
 
@@ -92,8 +92,9 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 - vault 의 `locks/*`, `sync/*` branch protection 은 GitHub Free 비공개 저장소라
   미적용(선택 사항 — CAS 자체는 일반 push 의 ff 검사로 보장됨).
 - 코드 서명 없음 → exe 실행 시 SmartScreen 경고 (배포 계획 D5).
-- profile(allowedGlobs 등) 편집 UI 없음 — 수동으로
-  `%LOCALAPPDATA%\AgentContinuity\config\profiles\<projectId>.json` 편집.
+- profile 편집은 UI 의 [profile 편집] 버튼 또는
+  `%LOCALAPPDATA%\AgentContinuity\config\profiles\<projectId>.json` 직접 편집.
+  UI 편집 대화상자는 아직 실기기 미확인.
 - 사용자 노출 문자열이 한국어 하드코딩 (i18n 은 배포 계획 D3).
 - age CLI 특성상 복호화 순간 잠금 임시 폴더에 identity 파일이 생겼다 즉시
   파쇄됨 (§7.2 원칙의 최소 예외, README 보안 노트에 문서화).
@@ -102,8 +103,11 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 
 1. **사용자 피드백 라운드 마무리** — §5 항목 확인, 발견 버그 수정.
    사용자가 "배포하자"라고 하면 v0.6.0 릴리스 발행(방법은 §8).
-2. **profile 편집 UI** — 프로젝트 대화상자에 allowedGlobs/excludedGlobs 편집 추가.
-   주의: 계획서 §4.2 "profile 자체 변경은 정상 Finish 에 포함하지 않는다".
+2. ~~profile 편집 UI~~ — **완료**: 메인 창 [profile 편집] 버튼 →
+   allowedGlobs/excludedGlobs/trackedOnly/maxDiffSizeBytes 편집 대화상자.
+   검증·저장은 `core/Common.psm1` 의 `Test-AcProfileValue`/`Save-AcProfile`
+   (fail-closed, 단위 테스트 있음). profile 은 로컬 전용이라 §4.2 규칙
+   ("Finish 에 포함하지 않는다") 그대로 유지. 실기기 확인만 남음.
 3. **배포 계획 D3** — i18n(ko/en 리소스), 시크릿 규칙 JSON 외부화(기본 규칙 삭제
    불가), schemaVersion 읽기 시 강제 검증.
 4. **D4** — `Update-AgentContinuity`(진행 중 lease 있으면 거부), CHANGELOG, SECURITY.md.

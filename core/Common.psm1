@@ -42,6 +42,72 @@ function Get-AcProject {
     return $project
 }
 
+function Get-AcProfilePath {
+    param([Parameter(Mandatory)][string] $ProjectId)
+    Join-Path (Get-AcHome) "config/profiles/$ProjectId.json"
+}
+
+function Read-AcProfile {
+    param([Parameter(Mandatory)][string] $ProjectId)
+    $path = Get-AcProfilePath -ProjectId $ProjectId
+    if (-not (Test-Path $path)) { throw "프로젝트 profile 이 없습니다: $path" }
+    Get-Content -Raw -Path $path | ConvertFrom-Json
+}
+
+function Test-AcProfileValue {
+    # profile.schema.json 과 같은 규칙의 저장 전 검증. 위반 목록을 돌려주고,
+    # 저장 함수는 위반이 하나라도 있으면 기존 파일을 건드리지 않는다(fail-closed).
+    param([Parameter(Mandatory)] $ProjectProfile)
+    if ($ProjectProfile -is [System.Collections.IDictionary]) { $ProjectProfile = [pscustomobject]$ProjectProfile }
+    $violations = [System.Collections.Generic.List[string]]::new()
+    $known = @('allowedGlobs', 'excludedGlobs', 'trackedOnly', 'maxDiffSizeBytes')
+    foreach ($name in $ProjectProfile.PSObject.Properties.Name) {
+        if ($name -cnotin $known) { $violations.Add("알 수 없는 속성: $name") }
+    }
+    foreach ($name in $known) {
+        if (-not ($ProjectProfile.PSObject.Properties.Name -ccontains $name)) { $violations.Add("필수 속성 누락: $name") }
+    }
+    if ($violations.Count -gt 0) { return $violations }
+
+    $allowed = @($ProjectProfile.allowedGlobs)
+    if ($allowed.Count -lt 1) { $violations.Add('allowedGlobs 는 최소 1개 필요합니다') }
+    foreach ($g in $allowed) {
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add('allowedGlobs 에 빈 항목이 있습니다') }
+    }
+    foreach ($g in @($ProjectProfile.excludedGlobs)) {
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add('excludedGlobs 에 빈 항목이 있습니다') }
+    }
+    if (-not ($ProjectProfile.trackedOnly -is [bool])) { $violations.Add('trackedOnly 는 true/false 여야 합니다') }
+    $maxBytes = $ProjectProfile.maxDiffSizeBytes
+    if (-not ($maxBytes -is [int] -or $maxBytes -is [long]) -or [long]$maxBytes -lt 1) {
+        $violations.Add('maxDiffSizeBytes 는 1 이상의 정수여야 합니다')
+    }
+    return $violations
+}
+
+function Save-AcProfile {
+    param(
+        [Parameter(Mandatory)][string] $ProjectId,
+        [Parameter(Mandatory)] $ProjectProfile
+    )
+    $violations = Test-AcProfileValue -ProjectProfile $ProjectProfile
+    if (@($violations).Count -gt 0) {
+        throw ("profile 검증 실패 — 저장하지 않았습니다:`n" + (@($violations) -join "`n"))
+    }
+    $path = Get-AcProfilePath -ProjectId $ProjectId
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    $ordered = [ordered]@{
+        allowedGlobs     = @($ProjectProfile.allowedGlobs)
+        excludedGlobs    = @($ProjectProfile.excludedGlobs)
+        trackedOnly      = [bool]$ProjectProfile.trackedOnly
+        maxDiffSizeBytes = [long]$ProjectProfile.maxDiffSizeBytes
+    }
+    $tmp = "$path.tmp"
+    $ordered | ConvertTo-Json | Set-Content -Path $tmp -Encoding utf8
+    Move-Item -Path $tmp -Destination $path -Force
+    Write-AcLog -Level INFO -Message "profile 저장: $ProjectId (allowedGlobs $(@($ProjectProfile.allowedGlobs).Count)개)"
+}
+
 function Write-AcLog {
     param(
         [ValidateSet('INFO', 'WARN', 'ERROR')] [string] $Level = 'INFO',
