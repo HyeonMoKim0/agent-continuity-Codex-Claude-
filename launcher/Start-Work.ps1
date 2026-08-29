@@ -6,8 +6,7 @@
 
 param(
     [Parameter(Mandatory)][string] $ProjectName,
-    [switch] $NoAgent,
-    [switch] $NonInteractive
+    [switch] $NoAgent
 )
 
 Set-StrictMode -Version Latest
@@ -192,11 +191,20 @@ try {
         Write-Host '------------------' -ForegroundColor Cyan
     }
 
+    Write-Host (Get-AcText 'start.worktree' @($worktree))
+
     if (-not $NoAgent -and $project.agent -ne 'none') {
-        $launch = if ($project.agent -eq 'codex') { Get-AcCodexLaunchCommand -WorktreePath $worktree } else { Get-AcClaudeLaunchCommand -WorktreePath $worktree }
-        $proc = Start-Process -FilePath $launch.FilePath -WorkingDirectory $launch.WorkingDirectory -PassThru
-        @{ pid = $proc.Id; agent = $project.agent; startedAt = Get-AcUtcNow } | ConvertTo-Json |
-            Set-Content -Path (Get-AcAgentStatePath $projectId) -Encoding utf8
+        # 에이전트 실행 실패(미설치·경로 문제)는 세션을 깨지 않는다: 세션과
+        # lease 는 이미 정상이므로 안내 후 계속한다 (worktree 에서 직접 작업).
+        try {
+            $launch = if ($project.agent -eq 'codex') { Get-AcCodexLaunchCommand -WorktreePath $worktree } else { Get-AcClaudeLaunchCommand -WorktreePath $worktree }
+            $proc = Start-Process -FilePath $launch.FilePath -WorkingDirectory $launch.WorkingDirectory -PassThru
+            @{ pid = $proc.Id; agent = $project.agent; startedAt = Get-AcUtcNow } | ConvertTo-Json |
+                Set-Content -Path (Get-AcAgentStatePath $projectId) -Encoding utf8
+        } catch {
+            Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.agentLaunchFail' @($project.agent, $_))
+            Write-Host (Get-AcText 'start.agentLaunchFailHint') -ForegroundColor Yellow
+        }
     }
 
     Write-AcBanner -Color green -Message (Get-AcText 'start.done' @($machineId))

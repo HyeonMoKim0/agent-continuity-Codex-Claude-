@@ -68,6 +68,28 @@ try {
         Assert-AcTrue (Test-Path (Join-Path $userClone 'junk-outside-allowlist.bin')) '무관 파일 보존'
     }
 
+    Invoke-AcTest '기준 브랜치 불명 + 커밋 있는 원격: orphan 을 만들지 않고 중단' {
+        # HEAD 가 존재하지 않는 브랜치를 가리키는 원격(기본 브랜치 미설정) 재현
+        $oddRemote = Join-Path $testEnv.Base 'odd-remote.git'
+        & git init --quiet --bare $oddRemote 2>&1 | Out-Null
+        & git -C $oddRemote symbolic-ref HEAD refs/heads/definitely-unset 2>&1 | Out-Null
+        $seed = Join-Path $testEnv.Base 'odd-seed'
+        & git init --quiet -b feature $seed 2>&1 | Out-Null
+        Set-Content (Join-Path $seed 'code.txt') 'existing code' -Encoding utf8
+        & git -C $seed -c user.name=u -c user.email=u@x add code.txt 2>&1 | Out-Null
+        & git -C $seed -c user.name=u -c user.email=u@x commit --quiet -m seed 2>&1 | Out-Null
+        & git -C $seed remote add origin $oddRemote 2>&1 | Out-Null
+        & git -C $seed push --quiet origin feature 2>&1 | Out-Null
+
+        $setup = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'bootstrap/Setup-AgentContinuity.ps1' -Arguments @(
+            '-MachineId', 'desktop-main', '-VaultRemote', $testEnv.VaultRemote,
+            '-ProjectName', 'orphan-guard', '-ProjectRemote', $oddRemote,
+            '-Agent', 'none', '-SkipShortcuts')
+        Assert-AcTrue ($setup.ExitCode -ne 0) '중단되어야 함'
+        Assert-AcTrue ($setup.Text -match '기준 브랜치') '원인 안내'
+        Assert-AcTrue ($setup.Text -notmatch '설정 완료') '등록되지 않아야 함'
+    }
+
     Invoke-AcTest 'dirty 클론에도 새 작업 브랜치 승격 가능 (checkout -b 는 파일 무변경)' {
         # 실제 사용 사례: untracked 파일이 수천 개인 프로젝트 폴더를 승격.
         # 새 브랜치 생성은 워킹트리를 건드리지 않으므로 dirty 여도 허용된다.

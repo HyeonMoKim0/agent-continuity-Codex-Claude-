@@ -56,11 +56,14 @@ try {
         New-Item -ItemType Directory -Path (Join-Path $laptopWt 'src') -Force | Out-Null
         Set-Content (Join-Path $laptopWt 'src/leak.txt') 'AC_SECRET_CANARY value' -Encoding utf8
         $tipBefore = (& git -C $laptopWt ls-remote origin refs/heads/continuity/work) -split "`t" | Select-Object -First 1
+        $currentMdBefore = Get-Content -Raw (Join-Path $laptopWt 'docs/agent-handoff/CURRENT.md')
         $finish = Invoke-AcLauncher -Env $testEnv -Device 'laptop-main' -Script 'launcher/Finish-Work.ps1' -Arguments @('-ProjectName', 'testproj')
         Assert-AcEqual 6 $finish.ExitCode
         Assert-AcTrue ($finish.Text -match 'secret 탐지')
         $tipAfter = (& git -C $laptopWt ls-remote origin refs/heads/continuity/work) -split "`t" | Select-Object -First 1
         Assert-AcEqual $tipBefore $tipAfter 'secret 차단 시 원격 무변경'
+        Assert-AcEqual $currentMdBefore (Get-Content -Raw (Join-Path $laptopWt 'docs/agent-handoff/CURRENT.md')) `
+            '차단된 Finish 는 CURRENT.md 에 인계 기록을 남기지 않음'
         Remove-Item (Join-Path $laptopWt 'src/leak.txt') -Force
     }
 
@@ -129,12 +132,41 @@ try {
         Assert-AcEqual 10 $rounds.Count '10회 변경이 전부 도착'
         $finish = Invoke-AcLauncher -Env $testEnv -Device $finalDevice -Script 'launcher/Finish-Work.ps1' -Arguments @('-ProjectName', 'testproj')
         Assert-AcEqual 0 $finish.ExitCode
+        # 자동 인계 기록은 무한 누적되지 않고 최근 3개만 유지된다
+        $currentMd = Get-Content -Raw (Join-Path $wt 'docs/agent-handoff/CURRENT.md')
+        Assert-AcTrue ($currentMd -match 'agent-continuity:handoff-log') '관리 마커 존재'
+        $recordCount = ([regex]::Matches($currentMd, '(?m)^### generation ')).Count
+        Assert-AcTrue ($recordCount -le 3) "인계 기록 $recordCount 개 (최대 3)"
     }
 
-    Invoke-AcTest 'Show-Status 는 읽기 전용으로 상태를 보여줌' {
+    Invoke-AcTest '에이전트 실행 실패: 세션은 유지, 안내 후 Finish 로 정상 인계' {
+        # agent=codex 로 바꾸고 실행 파일을 없는 경로로 지정해 실패를 재현
+        $configPath = Join-Path $testEnv.Homes['desktop-main'] 'config/config.json'
+        $config = Get-Content -Raw $configPath | ConvertFrom-Json
+        ($config.projects | Where-Object { $_.name -eq 'testproj' }).agent = 'codex'
+        $config | ConvertTo-Json -Depth 8 | Set-Content -Path $configPath -Encoding utf8
+        try {
+            $start = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Start-Work.ps1' `
+                -Arguments @('-ProjectName', 'testproj') -ExtraEnv @{ AC_CODEX_BIN = (Join-Path $testEnv.Base 'no-such-cli') }
+            Assert-AcEqual 0 $start.ExitCode "agent-fail start: $($start.Text)"
+            Assert-AcTrue ($start.Text -match '실행 실패') '실패 안내 표시'
+            Assert-AcTrue ($start.Text -match '직접 작업') '수동 작업 안내 표시'
+            Assert-AcTrue ($start.Text -match 'worktree:') 'worktree 경로 표시'
+            $finish = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Finish-Work.ps1' -Arguments @('-ProjectName', 'testproj')
+            Assert-AcEqual 0 $finish.ExitCode "agent-fail finish: $($finish.Text)"
+        } finally {
+            $config = Get-Content -Raw $configPath | ConvertFrom-Json
+            ($config.projects | Where-Object { $_.name -eq 'testproj' }).agent = 'none'
+            $config | ConvertTo-Json -Depth 8 | Set-Content -Path $configPath -Encoding utf8
+        }
+    }
+
+    Invoke-AcTest 'Show-Status 는 읽기 전용으로 상태를 보여줌 (해석 라인 포함)' {
         $status = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Show-Status.ps1' -Arguments @('-ProjectName', 'testproj')
         Assert-AcEqual 0 $status.ExitCode
         Assert-AcTrue ($status.Text -match '마지막 완결 transaction: generation=')
+        Assert-AcTrue ($status.Text -match '일치합니다|뒤에 있습니다') '최신/뒤처짐 해석 표시'
+        Assert-AcTrue ($status.Text -match '유휴|active') 'lease 상태 표기'
     }
 } finally {
     Remove-AcTestEnvironment -Env $testEnv

@@ -126,6 +126,11 @@ if (-not (Test-Path (Join-Path $worktree '.git'))) {
         if ($baseExists) {
             Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', '-b', $WorkBranch, "origin/$defaultRef") | Out-Null
         } else {
+            # 기준 브랜치를 못 찾았는데 원격에 커밋이 있다면, 코드 없는 orphan
+            # 작업 브랜치를 조용히 만드는 대신 중단한다 (fail-closed). orphan
+            # 시작은 정말 빈 원격(새 프로젝트)에서만 허용된다.
+            $anyHeads = (Invoke-AcGit -RepoPath $worktree -Arguments @('ls-remote', '--heads', 'origin') -AllowFail).Text.Trim()
+            if ($anyHeads) { throw (Get-AcText 'setup.err.noBaseBranch' @($ProjectRemote)) }
             Invoke-AcGit -RepoPath $worktree -Arguments @('checkout', '-b', $WorkBranch) | Out-Null
         }
         # 핸드오프 문서 시드 (§4.1)
@@ -167,6 +172,9 @@ $config.vaultRemote = $VaultRemote
 $existing = @($config.projects) | Where-Object { $_.name -eq $ProjectName }
 if ($existing) {
     # 재실행: 경로/브랜치/agent 를 갱신한다 (worktree 이전·승격 지원).
+    if ([string]$existing[0].agent -ne $Agent) {
+        Write-Host (Get-AcText 'setup.updatedAgent' @($existing[0].agent, $Agent))
+    }
     $existing[0].projectId = $projectId
     $existing[0].projectRemote = $ProjectRemote
     $existing[0].workBranch = $WorkBranch
@@ -225,6 +233,10 @@ if ($IsWindows -and -not $SkipShortcuts) {
 # 9. 자가진단
 & (Join-Path $root 'bootstrap/Test-AgentContinuity.ps1') -ProjectName $ProjectName
 if ($LASTEXITCODE -ne 0) { Write-Host (Get-AcText 'setup.selfTestFail') -ForegroundColor Red; exit 1 }
+Write-AcLog -Level INFO -Message "setup: $ProjectName ($projectId)"
 Write-Host ''
-Write-Host (Get-AcText 'setup.done' @($ProjectName, $projectId)) -ForegroundColor Green
+Write-Host (Get-AcText 'setup.done' @($ProjectName)) -ForegroundColor Green
+Write-Host (Get-AcText 'setup.worktree' @($worktree))
+$savedProfile = Read-AcProfile -ProjectId $projectId
+Write-Host (Get-AcText 'setup.allowedGlobs' @((@($savedProfile.allowedGlobs) -join ', ')))
 exit 0

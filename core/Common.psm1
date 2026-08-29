@@ -57,7 +57,10 @@ function Get-AcProject {
     $config = Get-AcConfig
     if (-not $config) { throw (Get-AcText 'common.err.noConfig') }
     $project = $config.projects | Where-Object { $_.name -eq $Name }
-    if (-not $project) { throw (Get-AcText 'common.err.unknownProject' @($Name)) }
+    if (-not $project) {
+        $registered = @($config.projects | ForEach-Object { $_.name }) -join ', '
+        throw (Get-AcText 'common.err.unknownProject' @($Name, $registered))
+    }
     return $project
 }
 
@@ -171,6 +174,42 @@ function Save-AcProfile {
     $ordered | ConvertTo-Json | Set-Content -Path $tmp -Encoding utf8
     Move-Item -Path $tmp -Destination $path -Force
     Write-AcLog -Level INFO -Message (Get-AcText 'profile.log.saved' @($ProjectId, @($ProjectProfile.allowedGlobs).Count))
+}
+
+$script:AcHandoffLogMarker = '<!-- agent-continuity:handoff-log -->'
+
+function Update-AcHandoffLog {
+    # CURRENT.md 끝의 자동 인계 기록을 마커 기반 섹션으로 관리한다: 새 기록을
+    # 맨 앞에 넣고 최근 $Keep 개만 유지, 같은 generation·기기의 기존 기록은
+    # 교체한다(같은 인계 재시도가 중복 기록을 만들지 않도록). 마커 위의 사용자
+    # 내용은 건드리지 않으며, 구버전의 무한 append 기록은 이때 함께 정리된다.
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $RecordHeader,
+        [Parameter(Mandatory)][string] $RecordBody,
+        [int] $Keep = 3
+    )
+    $raw = if (Test-Path $Path) { Get-Content -Raw -Path $Path } else { '' }
+    $records = [System.Collections.Generic.List[string]]::new()
+    $userPart = $raw
+    $idx = $raw.IndexOf($script:AcHandoffLogMarker)
+    if ($idx -ge 0) {
+        $userPart = $raw.Substring(0, $idx)
+        foreach ($m in [regex]::Matches($raw.Substring($idx), '(?ms)^### .*?(?=^### |\z)')) {
+            $records.Add($m.Value.TrimEnd())
+        }
+    }
+    $legacyTitle = '## (인계 기록 \(자동\)|Handoff record \(automatic\))'
+    $userPart = [regex]::Replace($userPart,
+        "(?ms)\r?\n---\r?\n$legacyTitle\r?\n.*?(?=(\r?\n---\r?\n$legacyTitle)|\z)", '')
+
+    $headerPrefix = (($RecordHeader -split ' · ')[0..1] -join ' · ')
+    $kept = @($records | Where-Object { -not $_.StartsWith($headerPrefix) })
+    $all = @(@(($RecordHeader + "`n" + $RecordBody).TrimEnd()) + $kept | Select-Object -First $Keep)
+    $section = $script:AcHandoffLogMarker + "`n" +
+        (Get-AcText 'finish.record.managedTitle' @($Keep)) + "`n`n" +
+        ($all -join "`n`n") + "`n"
+    Set-Content -Path $Path -Value ($userPart.TrimEnd() + "`n`n" + $section) -Encoding utf8 -NoNewline
 }
 
 function Write-AcLog {

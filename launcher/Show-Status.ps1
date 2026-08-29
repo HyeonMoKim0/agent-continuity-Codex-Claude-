@@ -18,10 +18,13 @@ foreach ($project in $projects) {
     Write-Host (Get-AcText 'status.project' @($project.name, $config.machineId)) -ForegroundColor Cyan
 
     $leaseInfo = Get-AcLease -ProjectId $projectId
-    if ($leaseInfo.Lease) {
+    if ($leaseInfo.Lease -and $leaseInfo.Lease.state -eq 'active') {
         $lease = $leaseInfo.Lease
         $expired = if (Test-AcLeaseExpired -Lease $lease) { Get-AcText 'status.lease.expiredSuffix' } else { '' }
         Write-Host (Get-AcText 'status.lease' @($lease.state, $expired, $lease.machineId, $lease.generation))
+    } elseif ($leaseInfo.Lease) {
+        # 해제된 lease 는 "소유 기기" 로 보여주면 혼란만 준다 — 유휴로 표시.
+        Write-Host (Get-AcText 'status.lease.idle' @($leaseInfo.Lease.machineId, $leaseInfo.Lease.generation))
     } else {
         Write-Host (Get-AcText 'status.lease.none')
     }
@@ -46,6 +49,13 @@ foreach ($project in $projects) {
         Write-Host (Get-AcText 'status.dirty' @($dirty.Count))
         if ($lastTx.Record -and $remoteTip -and $remoteTip -ne $lastTx.Record.projectHead) {
             Write-Host (Get-AcText 'status.tipWarning') -ForegroundColor Yellow
+        } elseif ($lastTx.Record -and $head.ExitCode -eq 0) {
+            # 원시 sha 두 줄만으론 판단이 어려우니 결론을 한 줄로 보여준다.
+            if ($headSha -eq $lastTx.Record.projectHead) {
+                Write-Host (Get-AcText 'status.upToDate') -ForegroundColor Green
+            } else {
+                Write-Host (Get-AcText 'status.behind') -ForegroundColor Yellow
+            }
         }
     } else {
         Write-Host (Get-AcText 'status.noWorktree' @($project.worktreePath))

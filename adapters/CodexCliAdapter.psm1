@@ -66,7 +66,8 @@ function Resolve-AcCodexRestorePath {
 
 function Get-AcCodexLaunchCommand {
     param([Parameter(Mandatory)][string] $WorktreePath)
-    @{ FilePath = 'codex'; ArgumentList = @(); WorkingDirectory = $WorktreePath }
+    $bin = if ($env:AC_CODEX_BIN) { $env:AC_CODEX_BIN } else { 'codex' }
+    @{ FilePath = $bin; ArgumentList = @(); WorkingDirectory = $WorktreePath }
 }
 
 Export-ModuleMember -Function *-Ac*

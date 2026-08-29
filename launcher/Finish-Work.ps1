@@ -6,8 +6,7 @@
 
 param(
     [Parameter(Mandatory)][string] $ProjectName,
-    [int] $AgentStopTimeoutSec = 30,
-    [switch] $NonInteractive
+    [int] $AgentStopTimeoutSec = 30
 )
 
 Set-StrictMode -Version Latest
@@ -58,7 +57,9 @@ if (Test-Path $agentStatePath) {
     Remove-Item $agentStatePath -Force -ErrorAction SilentlyContinue
 }
 
-# --- 3. collect + write the handoff record into CURRENT.md (§6.3-4 준비) -----
+# --- 3. probe + secret scan, BEFORE any worktree mutation (§6.3-4..5) --------
+# 중단으로 끝날 수 있는 검사(크기 한도·secret)는 인계 기록을 CURRENT.md 에
+# 쓰기 전에 끝낸다: 실패한 Finish 는 worktree 에 아무 흔적도 남기지 않는다.
 $lastTx = Get-AcLastTransaction -ProjectId $projectId
 $generation = if ($lastTx.Record) { [int]$lastTx.Record.generation + 1 } else { 1 }
 
@@ -68,39 +69,13 @@ if ($probe.Status -eq 'too-large') {
         -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.tooLarge.recommended')
     exit 5
 }
-
-$currentMd = Join-Path $worktree 'docs/agent-handoff/CURRENT.md'
-if (Test-Path $currentMd) {
-    $deletedSuffix = Get-AcText 'finish.staged.deletedSuffix'
-    $stagedList = ($probe.Staged | ForEach-Object { "  - $($_.path)$(if ($_.deleted) { $deletedSuffix })" }) -join "`n"
-    if (-not $stagedList) { $stagedList = Get-AcText 'finish.staged.none' }
-    $footer = (@(
-        ''
-        '---'
-        (Get-AcText 'finish.record.title')
-        (Get-AcText 'finish.record.generation' @($generation))
-        (Get-AcText 'finish.record.machine' @($machineId))
-        (Get-AcText 'finish.record.session' @($session.sessionId))
-        (Get-AcText 'finish.record.time' @((Get-AcUtcNow)))
-        (Get-AcText 'finish.record.changes')
-        $stagedList
-    ) -join "`n")
-    Add-Content -Path $currentMd -Value $footer -Encoding utf8
-}
-
-# --- 4. final staging snapshot within profile bounds (§6.3-4) ----------------
-$snapshot = New-AcStagingSnapshot -Project $project -ProjectProfile $acProfile
-if ($snapshot.Status -ne 'ok') {
-    Show-AcAbort -Cause (Get-AcText 'finish.abort.snapshot.cause' @($snapshot.Status)) `
+if ($probe.Status -ne 'ok') {
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.snapshot.cause' @($probe.Status)) `
         -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.snapshot.recommended')
     exit 5
 }
-foreach ($skip in $snapshot.Skipped) {
-    Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.skipped' @($skip.path, $skip.reason))
-}
 
-# --- 5. secret scan — findings block the commit itself (§6.3-5) --------------
-$scanPaths = @($snapshot.Staged | Where-Object { -not $_.deleted } | ForEach-Object { $_.path })
+$scanPaths = @($probe.Staged | Where-Object { -not $_.deleted } | ForEach-Object { $_.path })
 $scan = Invoke-AcSecretScan -WorktreePath $worktree -Paths $scanPaths
 if (-not $scan.Clean) {
     foreach ($f in $scan.Findings) {
@@ -110,6 +85,28 @@ if (-not $scan.Clean) {
         -Preserved (Get-AcText 'finish.abort.secret.preserved') `
         -Recommended (Get-AcText 'finish.abort.secret.recommended')
     exit 6
+}
+
+# --- 4. bounded handoff record + final staging snapshot (§6.3-4) -------------
+$currentMd = Join-Path $worktree 'docs/agent-handoff/CURRENT.md'
+if (Test-Path $currentMd) {
+    $deletedSuffix = Get-AcText 'finish.staged.deletedSuffix'
+    $stagedList = ($probe.Staged | ForEach-Object { "  - $($_.path)$(if ($_.deleted) { $deletedSuffix })" }) -join "`n"
+    if (-not $stagedList) { $stagedList = Get-AcText 'finish.staged.none' }
+    Update-AcHandoffLog -Path $currentMd `
+        -RecordHeader (Get-AcText 'finish.record.header' @($generation, $machineId, (Get-AcUtcNow))) `
+        -RecordBody ((Get-AcText 'finish.record.session' @($session.sessionId)) + "`n" +
+            (Get-AcText 'finish.record.changes') + "`n" + $stagedList)
+}
+
+$snapshot = New-AcStagingSnapshot -Project $project -ProjectProfile $acProfile
+if ($snapshot.Status -ne 'ok') {
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.snapshot.cause' @($snapshot.Status)) `
+        -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.snapshot.recommended')
+    exit 5
+}
+foreach ($skip in $snapshot.Skipped) {
+    Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.skipped' @($skip.path, $skip.reason))
 }
 
 # --- 6..8. single projectHead commit + object re-verify (§6.3-6..8) ----------

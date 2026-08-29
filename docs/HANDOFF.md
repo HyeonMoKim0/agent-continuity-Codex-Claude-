@@ -1,7 +1,7 @@
 # Agent Continuity — 개발 인수인계 문서
 
 > 이 문서는 이 프로젝트의 개발을 이어받는 사람(또는 새 AI 세션)을 위한 것이다.
-> 마지막 갱신: 2026-08-29 · 테스트: 65/65 green
+> 마지막 갱신: 2026-08-29 · 테스트: 71/71 green
 
 ---
 
@@ -129,32 +129,18 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
 
 ### 개선 백로그 — 2026-08-29 사용성 점검 (전 CLI 플로우 실제 구동으로 확인)
 
-**A. 원칙 위반·오해 유발 (버그 취급, 소규모 수정)**
-1. 중단된 Finish 가 CURRENT.md 오염: 인계 기록 footer 를 3단계에서 미리 써서,
-   secret 차단 등으로 중단돼도 기록이 남고(미커밋 modified) 다음 성공 때
-   중복·허위 기록이 쌓임. → footer 작성을 secret scan 통과 뒤로 이동.
-2. 에이전트 CLI 실행 실패(미설치 등) 시 raw 예외로 종료: lease·keeper 는 살아
-   있고 Finish 로 정상 복구됨을 확인했으나 안내가 전무. → try/catch 후
-   "세션은 열려 있음, worktree 에서 직접 작업 후 종료·인계" 안내하고 exit 0.
-3. Setup 이 원격 기본 브랜치를 못 찾으면(HEAD 미지정 bare 등) 조용히 코드
-   없는 orphan 작업 브랜치를 생성. → 원격에 커밋이 있는데 기준 브랜치를 못
-   찾으면 중단이 정답 (fail-closed).
-4. 미등록 프로젝트 이름 → raw 예외. 등록된 이름 목록과 함께 정중히 중단.
-
-**B. 일상 마찰**
-5. worktree 경로가 Setup 완료·Start 완료 어디에도 안 나옴 (agent=none 이면
-   어디서 작업할지 모름). Setup 은 기본 allowedGlobs 도 함께 보여줄 것.
-6. CURRENT.md 인계 기록 무한 누적(왕복 5회에 7개) + Start 가 전체 파일을
-   덤프. → 자동 기록 섹션을 마커 기반으로 최신 1개(+직전 N개)만 유지.
-7. Show-Status 해석 부재: released 인데 "소유 기기=" 표기 혼란, 로컬 HEAD 가
-   projectHead 보다 뒤처져도 raw sha 만 나옴. → "이 기기는 뒤처짐 — 작업
-   시작으로 따라잡으세요" / "최신 상태" 한 줄 추가.
-8. Setup/저장 로그의 64자 projectId 노이즈 → 사용자 메시지는 프로젝트 이름,
-   id 는 로그 파일로.
-9. Setup 재실행 시 무엇이 갱신됐는지(agent none→claude 등) 무언.
-
-**C. 정리**
-10. launcher Start/Finish 의 죽은 `-NonInteractive` 파라미터.
+**A1~A4, B5~B9, C10 완료** (커밋 참조):
+- A1 중단된 Finish 의 CURRENT.md 오염 → 크기·secret 검사를 기록 작성 앞으로.
+- A2 에이전트 실행 실패 → 세션 유지 + 수동 작업 안내 (AC_CODEX_BIN /
+  AC_CLAUDE_BIN 오버라이드도 추가 — 커스텀 CLI 경로 지원).
+- A3 기준 브랜치 불명 + 커밋 있는 원격 → orphan 생성 대신 중단.
+- A4 미등록 프로젝트 → 등록 목록과 함께 안내.
+- B5 Setup·Start 가 worktree 경로(+기본 allowedGlobs) 표시.
+- B6 CURRENT.md 인계 기록: 마커 관리 섹션, 최근 3개 유지, 재시도 멱등,
+  구버전 무한 append 는 다음 Finish 때 자동 정리 (Update-AcHandoffLog).
+- B7 Show-Status: released → 유휴 표기, "일치/뒤처짐" 해석 한 줄.
+- B8 setup 완료 메시지에서 64자 projectId 제거(로그로 이동).
+- B9 Setup 재실행 시 agent 변경 표시. C10 죽은 -NonInteractive 제거.
 
 **D. 실기기(Windows)에서만 확인 가능 — UI**
 - 실행 중 상태 패널 자동 갱신 없음(완료 후에만), 중단 시 원인·권장 행동이

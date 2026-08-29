@@ -29,6 +29,30 @@ with a `vX.Y.Z` tag input); the full test suite is the release gate.
   (session state or live lease keeper), refuses to overwrite a folder that
   is not an installation, and never touches config/state.
 - `CHANGELOG.md` and `SECURITY.md`.
+- `AC_CODEX_BIN` / `AC_CLAUDE_BIN` environment overrides for custom agent
+  CLI locations.
+- Setup and Start now print the worktree path (and Setup the default
+  allowedGlobs), so it is always clear where to work and what gets handed
+  off; Show-Status adds a one-line verdict (up to date / behind) and shows
+  a released lease as idle.
+
+### Changed
+- The automatic handoff record in `CURRENT.md` is now a marker-managed
+  section keeping only the last 3 records (legacy unbounded records are
+  cleaned up on the next Finish); a retried Finish replaces its own record
+  instead of duplicating it.
+
+### Fixed
+- An aborted Finish (secret detected, size limit) no longer writes the
+  handoff record into `CURRENT.md` — a failed handoff leaves no trace in
+  the worktree.
+- A failed agent CLI launch (not installed, wrong path) no longer ends
+  Start with a raw exception: the session stays open and Start explains
+  how to continue manually.
+- Setup now refuses to silently create an empty orphan work branch when
+  the remote has commits but no determinable default branch.
+- Unknown project names now list the registered projects instead of a bare
+  exception.
 
 ## [0.5.1]
 
