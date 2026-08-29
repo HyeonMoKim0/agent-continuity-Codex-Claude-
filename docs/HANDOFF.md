@@ -1,7 +1,7 @@
 # Agent Continuity — 개발 인수인계 문서
 
 > 이 문서는 이 프로젝트의 개발을 이어받는 사람(또는 새 AI 세션)을 위한 것이다.
-> 마지막 갱신: 2026-08-29 · 테스트: 61/61 green
+> 마지막 갱신: 2026-08-29 · 테스트: 65/65 green
 
 ---
 
@@ -119,8 +119,11 @@ vault.git bare 클론). 테스트·가상 기기는 `AGENT_CONTINUITY_HOME` 으�
    - ~~i18n~~: 전체 이관 완료 — 런처·예외 화면·core 메시지/Reason·bootstrap·
      installer·WPF UI(XAML 포함)·keeper 로그. en 키 완전성·자리표시자 일치는
      I18n.Tests 가 강제. **UI 의 en 표시는 실기기(Windows)에서 미확인.**
-4. **D4** — `Update-AgentContinuity`(진행 중 lease 있으면 거부), CHANGELOG, SECURITY.md.
-5. 공개 전환 시: README 의 개인 URL 일반화, 위협 모델 문서.
+4. ~~D4~~ — **완료**: `Update-AgentContinuity.ps1`(진행 중 세션·keeper 감지 시
+   거부, 설치본 아닌 폴더 거부, config/state 무접촉, 단위 테스트 4개),
+   `CHANGELOG.md`, `SECURITY.md`. 주의: `AgentContinuity.psd1` 의
+   ModuleVersion(0.4.0)이 릴리스 태그와 어긋나 있음 — 다음 릴리스 때 맞출 것.
+5. 공개 전환 시: README 의 개인 URL 일반화 (위협 모델 요약은 SECURITY.md 에 있음).
 6. Phase 4(데스크톱 앱 대화 목록 통합)는 **공식 API 없이는 착수 금지** (ADR-006).
 
 ## 8. 운영 방법 (개발자용 치트시트)
@@ -137,6 +140,12 @@ installer/build.sh vX.Y.Z
 
 # 가상 두 번째 기기 (한 PC에서 왕복 시험)
 $env:AGENT_CONTINUITY_HOME = "C:\Users\<me>\AppData\Local\AgentContinuity-second"
+
+# 설치본 업데이트 (새 버전 zip/클론 폴더에서 실행; 진행 중 세션 있으면 거부)
+pwsh -ExecutionPolicy Bypass -File .\Update-AgentContinuity.ps1
+
+# 영어 UI/출력 확인
+$env:AC_LANG = 'en'   # 또는 config.json 에 "language": "en"
 ```
 
 ## 9. 건드리면 안 되는 불변 규칙 (계획서 §17, ADR)

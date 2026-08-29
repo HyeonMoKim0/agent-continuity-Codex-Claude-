@@ -415,4 +415,17 @@
     'ui.tray.balloon'                     = 'Keeps running in the tray until the operation finishes.'
     'ui.banner.noConfig'                  = 'No configuration — register machine/vault/project with [Add project]'
     'ui.banner.ready'                     = 'Ready — normal use is one Start and one Finish'
+
+    # Update-AgentContinuity.ps1 (D4)
+    'update.title'                        = 'Agent Continuity update'
+    'update.versions'                     = '  installed: {0} → new: {1}'
+    'update.err.noInstall'                = 'No installation to update at: {0}'
+    'update.err.noInstallHint'            = 'For a fresh install use Install-AgentContinuity.ps1 (-InstallDir selects the location).'
+    'update.err.busy'                     = 'Refusing to update while a session is in progress (do not overwrite, preserve, stop):'
+    'update.busyProject'                  = '  - {0}'
+    'update.err.busyHint'                 = "Run 'Finish & hand off' for those projects first, then update again."
+    'update.warn.configUnreadable'        = 'Cannot read the configuration, so session state could not be checked: {0}'
+    'update.warn.configUnreadableHint'    = 'Continue only when you are sure no work is in progress. Add -Force to continue.'
+    'update.done'                         = 'Update complete: {0}'
+    'update.selfTest'                     = 'Self-diagnosis:'
 }

@@ -415,4 +415,17 @@
     'ui.tray.balloon'                     = '작업이 끝날 때까지 트레이에서 계속 실행됩니다.'
     'ui.banner.noConfig'                  = '설정이 없습니다 — [프로젝트 추가] 버튼으로 기기·vault·프로젝트를 등록하세요'
     'ui.banner.ready'                     = '준비 — 정상 사용은 작업 시작 1회, 종료·인계 1회면 충분합니다'
+
+    # Update-AgentContinuity.ps1 (D4)
+    'update.title'                        = 'Agent Continuity 업데이트'
+    'update.versions'                     = '  설치본: {0} → 새 버전: {1}'
+    'update.err.noInstall'                = '업데이트할 설치본이 없습니다: {0}'
+    'update.err.noInstallHint'            = '새 설치는 Install-AgentContinuity.ps1 을 사용하세요 (-InstallDir 로 설치 위치를 지정할 수 있습니다).'
+    'update.err.busy'                     = '진행 중인 세션이 있어 업데이트를 거부합니다 (덮어쓰지 말고, 보존하고, 멈춰라):'
+    'update.busyProject'                  = '  - {0}'
+    'update.err.busyHint'                 = "해당 프로젝트에서 '종료·인계'를 먼저 실행한 뒤 다시 업데이트하세요."
+    'update.warn.configUnreadable'        = '설정을 읽을 수 없어 세션 상태를 확인하지 못했습니다: {0}'
+    'update.warn.configUnreadableHint'    = '진행 중인 작업이 없는 것이 확실할 때만 계속하세요. 계속하려면 -Force 를 추가하세요.'
+    'update.done'                         = '업데이트 완료: {0}'
+    'update.selfTest'                     = '자가진단:'
 }
