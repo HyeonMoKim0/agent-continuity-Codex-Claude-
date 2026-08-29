@@ -53,6 +53,7 @@
     'start.abort.keeper.recommended'      = 'Try again'
     'start.worktree'                      = '  worktree: {0}'
     'start.warn.agentLaunchFail'          = 'Agent ({0}) launch failed: {1}'
+    'start.warn.agentNotFound'            = 'Agent ({0}) launch failed: executable not found ({1})'
     'start.agentLaunchFailHint'           = '  The session is open and healthy. Work directly in the worktree above, then Finish & hand off.'
     'start.done'                          = 'Ready to work · current machine: {0}'
     'start.warn.releaseFail'              = 'Lease release failed during Start cleanup: {0}'

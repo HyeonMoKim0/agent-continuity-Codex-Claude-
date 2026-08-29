@@ -149,8 +149,8 @@ try {
             $start = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Start-Work.ps1' `
                 -Arguments @('-ProjectName', 'testproj') -ExtraEnv @{ AC_CODEX_BIN = (Join-Path $testEnv.Base 'no-such-cli') }
             Assert-AcEqual 0 $start.ExitCode "agent-fail start: $($start.Text)"
-            Assert-AcTrue ($start.Text -match '실행 실패') '실패 안내 표시'
-            Assert-AcTrue ($start.Text -match '직접 작업') '수동 작업 안내 표시'
+            Assert-AcTrue ($start.Text -match '실행 실패') "실패 안내 표시 — 실제 출력: $($start.Text)"
+            Assert-AcTrue ($start.Text -match '직접 작업') "수동 작업 안내 표시 — 실제 출력: $($start.Text)"
             Assert-AcTrue ($start.Text -match 'worktree:') 'worktree 경로 표시'
             $finish = Invoke-AcLauncher -Env $testEnv -Device 'desktop-main' -Script 'launcher/Finish-Work.ps1' -Arguments @('-ProjectName', 'testproj')
             Assert-AcEqual 0 $finish.ExitCode "agent-fail finish: $($finish.Text)"

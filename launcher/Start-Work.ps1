@@ -196,14 +196,21 @@ try {
     if (-not $NoAgent -and $project.agent -ne 'none') {
         # 에이전트 실행 실패(미설치·경로 문제)는 세션을 깨지 않는다: 세션과
         # lease 는 이미 정상이므로 안내 후 계속한다 (worktree 에서 직접 작업).
-        try {
-            $launch = if ($project.agent -eq 'codex') { Get-AcCodexLaunchCommand -WorktreePath $worktree } else { Get-AcClaudeLaunchCommand -WorktreePath $worktree }
-            $proc = Start-Process -FilePath $launch.FilePath -WorkingDirectory $launch.WorkingDirectory -PassThru
-            @{ pid = $proc.Id; agent = $project.agent; startedAt = Get-AcUtcNow } | ConvertTo-Json |
-                Set-Content -Path (Get-AcAgentStatePath $projectId) -Encoding utf8
-        } catch {
-            Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.agentLaunchFail' @($project.agent, $_))
+        # 미설치는 Start-Process 의 예외 동작(플랫폼·버전별로 다름)에 기대지
+        # 않고 실행 파일 존재를 먼저 확인해 결정적으로 처리한다.
+        $launch = if ($project.agent -eq 'codex') { Get-AcCodexLaunchCommand -WorktreePath $worktree } else { Get-AcClaudeLaunchCommand -WorktreePath $worktree }
+        if (-not (Get-Command $launch.FilePath -ErrorAction SilentlyContinue)) {
+            Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.agentNotFound' @($project.agent, $launch.FilePath))
             Write-Host (Get-AcText 'start.agentLaunchFailHint') -ForegroundColor Yellow
+        } else {
+            try {
+                $proc = Start-Process -FilePath $launch.FilePath -WorkingDirectory $launch.WorkingDirectory -PassThru
+                @{ pid = $proc.Id; agent = $project.agent; startedAt = Get-AcUtcNow } | ConvertTo-Json |
+                    Set-Content -Path (Get-AcAgentStatePath $projectId) -Encoding utf8
+            } catch {
+                Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.agentLaunchFail' @($project.agent, $_))
+                Write-Host (Get-AcText 'start.agentLaunchFailHint') -ForegroundColor Yellow
+            }
         }
     }
 

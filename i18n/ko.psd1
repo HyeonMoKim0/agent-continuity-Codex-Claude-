@@ -53,6 +53,7 @@
     'start.abort.keeper.recommended'      = '다시 시도하세요'
     'start.worktree'                      = '  worktree: {0}'
     'start.warn.agentLaunchFail'          = '에이전트({0}) 실행 실패: {1}'
+    'start.warn.agentNotFound'            = '에이전트({0}) 실행 실패: 실행 파일을 찾을 수 없습니다 ({1})'
     'start.agentLaunchFailHint'           = '  세션은 정상적으로 열려 있습니다. 위 worktree 폴더에서 직접 작업한 뒤 종료·인계 하세요.'
     'start.done'                          = '작업 준비 완료 · 현재 기기: {0}'
     'start.warn.releaseFail'              = 'Start 정리 중 lease 해제 실패: {0}'
