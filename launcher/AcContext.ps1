@@ -44,8 +44,8 @@ function Show-AcAbort {
         [Parameter(Mandatory)][string] $Preserved,
         [Parameter(Mandatory)][string] $Recommended
     )
-    Write-AcBanner -Color red -Message "중단: $Cause"
-    Write-Host "  보존됨   : $Preserved"
-    Write-Host "  권장 행동: $Recommended"
+    Write-AcBanner -Color red -Message (Get-AcText 'abort.cause' @($Cause))
+    Write-Host (Get-AcText 'abort.preserved' @($Preserved))
+    Write-Host (Get-AcText 'abort.recommended' @($Recommended))
     Write-Host ''
 }

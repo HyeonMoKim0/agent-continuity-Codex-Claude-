@@ -25,29 +25,29 @@ $worktree = $project.worktreePath
 # 자동 커밋도, fast-forward 덮어쓰기도 되지 않으므로 안전하게 무시된다.
 $preflight = Test-AcPreflight -Project $project -ProjectProfile (Get-AcProjectProfile -Project $project)
 if ($preflight.UnrelatedDirty -gt 0) {
-    Write-Host "참고: 인계 대상이 아닌 변경 $($preflight.UnrelatedDirty)개는 무시합니다 (allowedGlobs 밖)."
+    Write-Host (Get-AcText 'start.unrelatedDirty' @($preflight.UnrelatedDirty))
 }
 if ($preflight.Dirty.Count -gt 0 -or $preflight.UnpushedAhead -gt 0) {
     $recovery = New-AcRecoveryBranch -Project $project -Label 'pre-start'
-    $preserved = "worktree 원본 유지, recovery branch: $($recovery.Branch)"
+    $preserved = Get-AcText 'start.preserved.recovery' @($recovery.Branch)
     if (Test-AcCryptoEnabled) {
         # Phase 2 (§6.4-2): additionally preserve the state as an encrypted
         # rescue bundle before aborting.
         try {
             $rescue = New-AcRescueBundle -Project $project -Label 'pre-start'
-            $preserved += ", rescue bundle: $($rescue.BackupFile)"
+            $preserved += Get-AcText 'start.preserved.rescueSuffix' @($rescue.BackupFile)
         } catch {
-            Write-AcLog -Level WARN -Message "rescue bundle 생성 실패(중단은 유지): $_"
+            Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.rescueFail' @($_))
         }
     }
-    Show-AcAbort -Cause 'Finish 누락 추정: 로컬에 미전송 변경이 있습니다' `
+    Show-AcAbort -Cause (Get-AcText 'start.abort.unpushed.cause') `
         -Preserved $preserved `
-        -Recommended "원래 이 변경을 만든 기기라면 '종료·인계'를 먼저 실행하세요 (또는 Recover-Work.ps1)"
+        -Recommended (Get-AcText 'start.abort.unpushed.recommended')
     exit 2
 }
 if (-not $preflight.Ok) {
-    Show-AcAbort -Cause ("사전 검사 실패: " + ($preflight.Issues -join ' / ')) `
-        -Preserved 'worktree 무변경' -Recommended 'Show-Status.ps1 로 상태를 확인하세요'
+    Show-AcAbort -Cause (Get-AcText 'start.abort.preflight.cause' @(($preflight.Issues -join ' / '))) `
+        -Preserved (Get-AcText 'common.preserved.noChange') -Recommended (Get-AcText 'common.recommended.showStatus')
     exit 2
 }
 
@@ -61,31 +61,32 @@ $leaseResult = Request-AcLease -ProjectId $projectId -Branch $project.workBranch
 switch ($leaseResult.Status) {
     'acquired' { }
     'already-active' {
-        Write-AcBanner -Color yellow -Message "이미 이 기기에서 작업 중입니다 (세션 $($leaseResult.Lease.sessionId)). 기존 세션을 사용하세요."
+        Write-AcBanner -Color yellow -Message (Get-AcText 'start.alreadyActive' @($leaseResult.Lease.sessionId))
         exit 0
     }
     'same-machine-recovery' {
-        Show-AcAbort -Cause '이 기기의 lease 가 남아있지만 keeper 가 없습니다' `
-            -Preserved 'worktree/원격 상태 무변경' -Recommended 'Recover-Work.ps1 -Action LeaseInfo 로 진단 후 복구하세요'
+        Show-AcAbort -Cause (Get-AcText 'start.abort.staleLease.cause') `
+            -Preserved (Get-AcText 'start.abort.staleLease.preserved') -Recommended (Get-AcText 'start.abort.staleLease.recommended')
         exit 3
     }
     'other-active' {
-        Show-AcAbort -Cause "다른 기기($($leaseResult.Lease.machineId))가 작업 중입니다" `
-            -Preserved '로컬 무변경' -Recommended "해당 기기에서 '종료·인계'를 먼저 실행하세요"
+        Show-AcAbort -Cause (Get-AcText 'start.abort.otherActive.cause' @($leaseResult.Lease.machineId)) `
+            -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'start.abort.otherActive.recommended')
         exit 3
     }
     'expired-no-takeover' {
-        Show-AcAbort -Cause "다른 기기($($leaseResult.Lease.machineId))의 lease 가 만료된 채 남아 있습니다" `
-            -Preserved '로컬·원격 무변경' -Recommended 'Phase 1 에서는 자동 인수하지 않습니다. 원래 기기에서 Finish 하거나 관리자 진단이 필요합니다'
+        Show-AcAbort -Cause (Get-AcText 'start.abort.expired.cause' @($leaseResult.Lease.machineId)) `
+            -Preserved (Get-AcText 'start.abort.expired.preserved') -Recommended (Get-AcText 'start.abort.expired.recommended')
         exit 3
     }
     'contention' {
-        Show-AcAbort -Cause '다른 기기가 방금 먼저 작업권을 가져갔습니다' `
-            -Preserved '로컬 무변경' -Recommended '잠시 후 Show-Status.ps1 로 확인하세요'
+        Show-AcAbort -Cause (Get-AcText 'start.abort.contention.cause') `
+            -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'start.abort.contention.recommended')
         exit 3
     }
     default {
-        Show-AcAbort -Cause "lease 획득 오류: $($leaseResult.Detail)" -Preserved '로컬 무변경' -Recommended '네트워크 확인 후 다시 시도하세요'
+        Show-AcAbort -Cause (Get-AcText 'start.abort.leaseError.cause' @($leaseResult.Detail)) `
+            -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'start.abort.leaseError.recommended')
         exit 4
     }
 }
@@ -100,15 +101,15 @@ try {
     if ($lastTx.Record) {
         $chain = Test-AcTransactionChain -ProjectId $projectId -TipSha $lastTx.TipSha -Record $lastTx.Record
         if (-not $chain.Valid) {
-            Show-AcAbort -Cause "transaction 체인 검증 실패: $($chain.Reason)" `
-                -Preserved '로컬 무변경' -Recommended 'Recover-Work.ps1 -Action Diagnostics 로 보고서를 만들어 확인하세요'
+            Show-AcAbort -Cause (Get-AcText 'start.abort.chain.cause' @($chain.Reason)) `
+                -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'start.recommended.diagnosticsReport')
             exit 5
         }
         $projectHead = $lastTx.Record.projectHead
         if ($remoteTip -ne $projectHead) {
             # A newer orphan commit on the branch tip is never auto-applied (§6.2).
-            Show-AcAbort -Cause "remote branch advanced: 브랜치 끝($remoteTip)이 마지막 완결 transaction($projectHead)과 다릅니다" `
-                -Preserved '로컬 무변경' -Recommended '원래 기기에서 Finish 를 완료해 transaction 을 완결하세요'
+            Show-AcAbort -Cause (Get-AcText 'start.abort.advanced.cause' @($remoteTip, $projectHead)) `
+                -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'start.abort.advanced.recommended')
             exit 5
         }
         Invoke-AcGit -RepoPath $worktree -Arguments @('fetch', '--quiet', 'origin', $project.workBranch) | Out-Null
@@ -116,15 +117,15 @@ try {
         if ($expectedParent) {
             $parent = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', "${projectHead}^") -AllowFail)
             if ($parent.ExitCode -ne 0 -or $parent.Text.Trim() -ne $expectedParent) {
-                Show-AcAbort -Cause 'projectHead 의 첫 부모가 expectedProjectParent 와 다릅니다' `
-                    -Preserved '로컬 무변경' -Recommended 'Recover-Work.ps1 -Action Diagnostics 실행'
+                Show-AcAbort -Cause (Get-AcText 'start.abort.parentMismatch.cause') `
+                    -Preserved (Get-AcText 'common.preserved.localNoChange') -Recommended (Get-AcText 'common.recommended.diagnostics')
                 exit 5
             }
         }
         $ff = Invoke-AcFastForward -Project $project -TargetSha $projectHead
         if ($ff.Status -ne 'ok') {
-            Show-AcAbort -Cause "fast-forward 불가($($ff.Status)): 자동 rebase/merge 는 하지 않습니다" `
-                -Preserved '로컬 worktree 유지' -Recommended 'Recover-Work.ps1 -Action PreserveOrphan 후 상태를 비교하세요'
+            Show-AcAbort -Cause (Get-AcText 'start.abort.ff.cause' @($ff.Status)) `
+                -Preserved (Get-AcText 'common.preserved.worktreeKept') -Recommended (Get-AcText 'start.recommended.preserveOrphanCompare')
             exit 5
         }
 
@@ -132,19 +133,19 @@ try {
         if ([bool]$project.allowSessionSnapshot) {
             $restore = Restore-AcSessionSnapshot -Project $project -Record $lastTx.Record
             switch ($restore.Status) {
-                'restored'   { Write-Host "세션 복원 완료: $($restore.Target)" }
-                'up-to-date' { Write-Host '세션이 이미 최신입니다.' }
+                'restored'   { Write-Host (Get-AcText 'start.restore.done' @($restore.Target)) }
+                'up-to-date' { Write-Host (Get-AcText 'start.restore.upToDate') }
                 'conflict' {
-                    Write-AcLog -Level WARN -Message "동일 세션의 로컬 파일이 더 새롭거나 알 수 없어 덮어쓰지 않았습니다. 보존: $($restore.RescueFile)"
-                    Write-Host '  자동 병합은 하지 않습니다. Git 핸드오프(CURRENT.md)로 계속 작업하세요.' -ForegroundColor Yellow
+                    Write-AcLog -Level WARN -Message (Get-AcText 'start.restore.conflict' @($restore.RescueFile))
+                    Write-Host (Get-AcText 'start.restore.conflictHint') -ForegroundColor Yellow
                 }
                 'degraded-version' {
-                    Write-AcLog -Level WARN -Message "CLI 버전($($restore['Version']))이 allowlist 에 없어 세션 복원을 생략했습니다 (Git 핸드오프로 계속)."
+                    Write-AcLog -Level WARN -Message (Get-AcText 'start.restore.degradedVersion' @($restore['Version']))
                 }
                 { $_ -in @('missing-cipher', 'cipher-mismatch', 'corrupt', 'unsupported-schema') } {
-                    Write-AcLog -Level WARN -Message "세션 스냅숏을 사용할 수 없습니다($($restore.Status)) — 로컬 세션은 건드리지 않았습니다."
+                    Write-AcLog -Level WARN -Message (Get-AcText 'start.restore.unavailable' @($restore.Status))
                 }
-                default { Write-AcLog -Level INFO -Message "세션 복원 생략($($restore.Status))" }
+                default { Write-AcLog -Level INFO -Message (Get-AcText 'start.restore.skipped' @($restore.Status)) }
             }
         }
     } else {
@@ -153,8 +154,8 @@ try {
         if ($remoteTip -and $preflight.LocalHead -ne $remoteTip) {
             $ff = Invoke-AcFastForward -Project $project -TargetSha $remoteTip
             if ($ff.Status -ne 'ok') {
-                Show-AcAbort -Cause '초기 상태에서 원격 브랜치로 fast-forward 할 수 없습니다' `
-                    -Preserved '로컬 worktree 유지' -Recommended 'Recover-Work.ps1 -Action PreserveOrphan 실행'
+                Show-AcAbort -Cause (Get-AcText 'start.abort.initialFf.cause') `
+                    -Preserved (Get-AcText 'common.preserved.worktreeKept') -Recommended (Get-AcText 'start.abort.initialFf.recommended')
                 exit 5
             }
         }
@@ -165,7 +166,8 @@ try {
     $started = Start-AcKeeper -ProjectId $projectId -MachineId $machineId `
         -Generation ([int]$lease.generation) -LeaseNonce $lease.leaseNonce -IntervalSeconds $keeperInterval
     if (-not $started) {
-        Show-AcAbort -Cause 'lease keeper 시작 실패' -Preserved '로컬 무변경 (lease 는 해제됨)' -Recommended '다시 시도하세요'
+        Show-AcAbort -Cause (Get-AcText 'start.abort.keeper.cause') `
+            -Preserved (Get-AcText 'start.abort.keeper.preserved') -Recommended (Get-AcText 'start.abort.keeper.recommended')
         exit 6
     }
     $keeperHandedOff = $true
@@ -197,7 +199,7 @@ try {
             Set-Content -Path (Get-AcAgentStatePath $projectId) -Encoding utf8
     }
 
-    Write-AcBanner -Color green -Message "작업 준비 완료 · 현재 기기: $machineId"
+    Write-AcBanner -Color green -Message (Get-AcText 'start.done' @($machineId))
     exit 0
 } finally {
     if (-not $keeperHandedOff) {
@@ -205,7 +207,7 @@ try {
         $release = Release-AcLease -ProjectId $projectId -MachineId $machineId `
             -Generation ([int]$lease.generation) -LeaseNonce $lease.leaseNonce
         if ($release.Status -ne 'ok') {
-            Write-AcLog -Level WARN -Message "Start 정리 중 lease 해제 실패: $($release.Status)"
+            Write-AcLog -Level WARN -Message (Get-AcText 'start.warn.releaseFail' @($release.Status))
         }
     }
 }

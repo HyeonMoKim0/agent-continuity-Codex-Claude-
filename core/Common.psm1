@@ -61,6 +61,52 @@ function Get-AcProject {
     return $project
 }
 
+# --- i18n (D3) --------------------------------------------------------------
+# 언어 선택: AC_LANG env > config.language > 'ko'. 리소스는 i18n/<lang>.psd1;
+# 선택 언어에 키가 없으면 ko 로, ko 에도 없으면 키 자체로 폴백한다 — 문구가
+# 빠졌다고 런처가 멈추는 일은 없어야 한다.
+
+$script:AcTextTable = $null
+$script:AcTextLang = $null
+$script:AcConfigLang = $null
+
+function Get-AcLanguage {
+    if ($env:AC_LANG -and $env:AC_LANG -in @('ko', 'en')) { return $env:AC_LANG }
+    if ($null -eq $script:AcConfigLang) {
+        $script:AcConfigLang = ''
+        try {
+            $config = Get-AcConfig
+            if ($config -and (@($config.PSObject.Properties.Name) -contains 'language') -and
+                $config.language -in @('ko', 'en')) {
+                $script:AcConfigLang = [string]$config.language
+            }
+        } catch { }
+    }
+    if ($script:AcConfigLang) { return $script:AcConfigLang }
+    return 'ko'
+}
+
+function Get-AcText {
+    param(
+        [Parameter(Mandatory)][string] $Key,
+        [object[]] $FormatArgs = @()
+    )
+    $lang = Get-AcLanguage
+    if ($script:AcTextLang -ne $lang -or $null -eq $script:AcTextTable) {
+        $dir = Join-Path (Split-Path -Parent $PSScriptRoot) 'i18n'
+        $table = Import-PowerShellDataFile (Join-Path $dir 'ko.psd1')
+        if ($lang -ne 'ko') {
+            $overlay = Import-PowerShellDataFile (Join-Path $dir "$lang.psd1")
+            foreach ($k in $overlay.Keys) { $table[$k] = $overlay[$k] }
+        }
+        $script:AcTextTable = $table
+        $script:AcTextLang = $lang
+    }
+    $text = if ($script:AcTextTable.ContainsKey($Key)) { $script:AcTextTable[$Key] } else { $Key }
+    if (@($FormatArgs).Count -gt 0) { return ($text -f $FormatArgs) }
+    return $text
+}
+
 function Get-AcProfilePath {
     param([Parameter(Mandatory)][string] $ProjectId)
     Join-Path (Get-AcHome) "config/profiles/$ProjectId.json"
