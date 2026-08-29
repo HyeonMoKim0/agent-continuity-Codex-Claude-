@@ -5,9 +5,10 @@
 데스크톱과 노트북 사이에서 Codex·Claude 작업을 안전하게 이어가는 도구입니다.
 정상 사용은 **`작업 시작` 1회 클릭 → 작업 → `종료·인계` 1회 클릭**으로 끝납니다.
 
-전체 설계 계획서(비공개 개인 문서)는 소유자의 `agent-continuity-vault` 저장소
-`docs` 브랜치에 보관되어 있으며, 본문에서 `§n` 으로 인용되는 절 번호는 그 문서
-기준입니다.
+본문과 코드 주석에서 `§n` 으로 인용되는 절 번호는 이 도구의 설계 계획서
+(작성자가 별도 보관하는 문서) 기준입니다. 공개된 요약은
+`docs/HANDOFF.md`(개발 인수인계)와 `SECURITY.md`(보안 모델)에 있습니다.
+취약점 신고는 `SECURITY.md` 를 참고하세요.
 
 ## 설치 (배포판)
 
@@ -33,6 +34,17 @@ powershell -ExecutionPolicy Bypass -File .\Install-AgentContinuity.ps1
 
 PowerShell 모듈로도 쓸 수 있습니다: `Import-Module .\AgentContinuity.psd1`
 (모든 `*-Ac*` 함수 노출).
+
+**업데이트**: 새 버전 zip/클론 폴더에서 아래를 실행하면 설치본이 교체됩니다.
+진행 중 세션(작업 시작 후 종료·인계 전)이 있으면 안전을 위해 거부합니다.
+설정·상태(`%LOCALAPPDATA%\AgentContinuity`)는 건드리지 않습니다.
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\Update-AgentContinuity.ps1
+```
+
+**언어**: 기본 한국어. 영어로 쓰려면 `$env:AC_LANG = 'en'` 을 설정하거나
+config.json 에 `"language": "en"` 을 추가하세요.
 
 ## 현재 구현 상태 — Phase 3 까지
 
@@ -160,6 +172,8 @@ pwsh -ExecutionPolicy Bypass -File ui\AgentContinuity-Ui.ps1
 - 실행 로그와 결과 배너(초록=완료, 빨강=중단+원인·보존·권장 행동)
 - **복구 센터** 다이얼로그: lease 조회, orphan 보존, 마지막 transaction 복귀,
   백업 검증·복원, 안전하게 인계받기(Takeover)
+- **profile 편집** 다이얼로그: allowedGlobs/excludedGlobs/trackedOnly/
+  maxDiffSizeBytes 를 검증과 함께 편집 (잘못된 값은 저장되지 않음)
 - 트레이 최소화: 인계 진행 중 창을 닫아도 작업은 강제 종료되지 않고 트레이에서
   계속 실행됩니다
 - 가상/보조 기기는 `AGENT_CONTINUITY_HOME` 을 설정한 창에서 UI 를 실행하면
@@ -194,6 +208,15 @@ pwsh launcher/Show-Status.ps1 -ProjectName myproject          # 상태 확인
 pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action LeaseInfo|PreserveOrphan|BackToLastTransaction|ReleaseRetry|Diagnostics
 ```
 
+## 커스터마이징
+
+- **profile (인계 경계)**: UI 의 `profile 편집` 버튼, 또는
+  `%LOCALAPPDATA%\AgentContinuity\config\profiles\<projectId>.json` 직접 편집.
+  allowedGlobs 안의 변경만 인계에 포함됩니다.
+- **시크릿 규칙 추가**: `%LOCALAPPDATA%\AgentContinuity\config\secret-rules.json`
+  (형식: `schemas/secret-rules.schema.json`). 추가 전용 — 기본 규칙은 삭제·대체할
+  수 없고, 규칙 파일이 잘못되면 인계가 중단됩니다 (fail-closed).
+
 ## 하지 않는 것 (plan §2.4, §17)
 
 - 자동 force push / rebase / merge — 없음
@@ -205,15 +228,19 @@ pwsh launcher/Recover-Work.ps1 -ProjectName myproject -Action LeaseInfo|Preserve
 ## 저장소 구조
 
 ```text
-bootstrap/   Setup-AgentContinuity.ps1, Test-AgentContinuity.ps1
-launcher/    Start-Work.ps1, Finish-Work.ps1, Show-Status.ps1, Recover-Work.ps1, Invoke-LeaseKeeper.ps1
-core/        Common, Lease, Transaction, GitSafety, SecretScan, Crypto(stub), Backup
-adapters/    CodexCliAdapter, ClaudeCodeAdapter  (Phase 3 까지 세션 복원 비활성)
-schemas/     profile / lease / transaction JSON Schema
+bootstrap/   Setup / Test / Enable-Phase2 / Enable-Phase3
+launcher/    Start-Work, Finish-Work, Show-Status, Recover-Work, Invoke-LeaseKeeper
+core/        Common, Lease, Transaction, GitSafety, SecretScan, Crypto, Backup, SessionSync
+adapters/    CodexCliAdapter, ClaudeCodeAdapter (세션 파일 탐색·복원 경로)
+ui/          AgentContinuity-Ui.ps1 (WPF 편의성 UI, Windows)
+i18n/        ko.psd1 / en.psd1 (사용자 노출 문자열 리소스)
+schemas/     profile / lease / transaction / secret-rules JSON Schema
 templates/   CURRENT.md, DECISIONS.md, OPEN-QUESTIONS.md
+installer/   AgentContinuity-Setup.exe 빌드 (Go, payload 내장)
 tests/       unit / integration (자체 경량 러너, Pester 불필요)
-AgentContinuity.psd1/.psm1   PowerShell 모듈 진입점
+AgentContinuity.psd1         PowerShell 모듈 manifest
 Install-AgentContinuity.ps1  배포판 설치 스크립트
+Update-AgentContinuity.ps1   설치본 업데이트 (진행 중 세션 시 거부)
 ```
 
 ## 테스트

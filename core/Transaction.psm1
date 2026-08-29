@@ -73,8 +73,10 @@ function Get-AcLastTransaction {
     }
     if ($null -eq $best) { return @{ Record = $null; RawJson = $null; Hash = $null; TipSha = $tip } }
     $raw = Read-AcRefFile -CommitSha $tip -Path (Get-AcTransactionPath -ProjectId $ProjectId -Generation $best)
+    $record = $raw | ConvertFrom-Json
+    Assert-AcSchemaVersion -Document $record -Source "transaction gen=$best"
     return @{
-        Record  = ($raw | ConvertFrom-Json)
+        Record  = $record
         RawJson = $raw
         Hash    = (Get-AcTransactionRawHash $raw)
         TipSha  = $tip
@@ -95,24 +97,24 @@ function Test-AcTransactionChain {
         $gen = [int]$current.generation
         if ($gen -le 1) {
             if ($current.parentTransactionHash) {
-                return @{ Valid = $false; Reason = "generation 1 이 parent hash 를 가짐" }
+                return @{ Valid = $false; Reason = (Get-AcText 'tx.reason.gen1HasParent') }
             }
             return @{ Valid = $true }
         }
         if (-not $current.parentTransactionHash) {
-            return @{ Valid = $false; Reason = "generation $gen 에 parentTransactionHash 없음" }
+            return @{ Valid = $false; Reason = (Get-AcText 'tx.reason.noParentHash' @($gen)) }
         }
         $parentRaw = Read-AcRefFile -CommitSha $TipSha -Path (Get-AcTransactionPath -ProjectId $ProjectId -Generation ($gen - 1))
         if (-not $parentRaw) {
-            return @{ Valid = $false; Reason = "generation $($gen - 1) 레코드 누락" }
+            return @{ Valid = $false; Reason = (Get-AcText 'tx.reason.parentMissing' @(($gen - 1))) }
         }
         $parentHash = Get-AcTransactionRawHash $parentRaw
         if ($parentHash -ne $current.parentTransactionHash) {
-            return @{ Valid = $false; Reason = "generation $gen 의 parent hash 불일치 (분기 의심)" }
+            return @{ Valid = $false; Reason = (Get-AcText 'tx.reason.parentHashMismatch' @($gen)) }
         }
         $parent = $parentRaw | ConvertFrom-Json
         if ([int]$parent.generation -ne ($gen - 1)) {
-            return @{ Valid = $false; Reason = "generation 연결이 어긋남" }
+            return @{ Valid = $false; Reason = (Get-AcText 'tx.reason.genLink') }
         }
         $current = $parent
     }

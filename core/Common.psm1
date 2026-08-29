@@ -21,10 +21,29 @@ function Initialize-AcHome {
 
 function Get-AcConfigPath { Join-Path (Get-AcHome) 'config/config.json' }
 
+$script:AcSchemaVersion = 1
+
+function Assert-AcSchemaVersion {
+    # D3: 더 새로운(알 수 없는) 버전의 기록을 잘못 해석한 채 진행하는 대신
+    # 읽기 시점에 중단한다. 기록 자체는 절대 고치지 않는다 (fail-closed).
+    param(
+        [Parameter(Mandatory)] $Document,
+        [Parameter(Mandatory)][string] $Source
+    )
+    if (@($Document.PSObject.Properties.Name) -notcontains 'schemaVersion') {
+        throw (Get-AcText 'common.err.schemaMissing' @($Source))
+    }
+    if ([long]$Document.schemaVersion -ne $script:AcSchemaVersion) {
+        throw (Get-AcText 'common.err.schemaUnsupported' @($Source, $Document.schemaVersion, $script:AcSchemaVersion))
+    }
+}
+
 function Get-AcConfig {
     $path = Get-AcConfigPath
     if (-not (Test-Path $path)) { return $null }
-    Get-Content -Raw -Path $path | ConvertFrom-Json
+    $config = Get-Content -Raw -Path $path | ConvertFrom-Json
+    Assert-AcSchemaVersion -Document $config -Source 'config.json'
+    return $config
 }
 
 function Save-AcConfig {
@@ -36,10 +55,161 @@ function Save-AcConfig {
 function Get-AcProject {
     param([Parameter(Mandatory)][string] $Name)
     $config = Get-AcConfig
-    if (-not $config) { throw "설정이 없습니다. Setup-AgentContinuity.ps1 을 먼저 실행하세요." }
+    if (-not $config) { throw (Get-AcText 'common.err.noConfig') }
     $project = $config.projects | Where-Object { $_.name -eq $Name }
-    if (-not $project) { throw "등록되지 않은 프로젝트: $Name" }
+    if (-not $project) {
+        $registered = @($config.projects | ForEach-Object { $_.name }) -join ', '
+        throw (Get-AcText 'common.err.unknownProject' @($Name, $registered))
+    }
     return $project
+}
+
+# --- i18n (D3) --------------------------------------------------------------
+# 언어 선택: AC_LANG env > config.language > 'ko'. 리소스는 i18n/<lang>.psd1;
+# 선택 언어에 키가 없으면 ko 로, ko 에도 없으면 키 자체로 폴백한다 — 문구가
+# 빠졌다고 런처가 멈추는 일은 없어야 한다.
+
+$script:AcTextTable = $null
+$script:AcTextLang = $null
+$script:AcConfigLang = $null
+
+function Get-AcLanguage {
+    if ($env:AC_LANG -and $env:AC_LANG -in @('ko', 'en')) { return $env:AC_LANG }
+    if ($null -eq $script:AcConfigLang) {
+        $script:AcConfigLang = ''
+        try {
+            $config = Get-AcConfig
+            if ($config -and (@($config.PSObject.Properties.Name) -contains 'language') -and
+                $config.language -in @('ko', 'en')) {
+                $script:AcConfigLang = [string]$config.language
+            }
+        } catch { }
+    }
+    if ($script:AcConfigLang) { return $script:AcConfigLang }
+    return 'ko'
+}
+
+function Get-AcText {
+    param(
+        [Parameter(Mandatory)][string] $Key,
+        [object[]] $FormatArgs = @()
+    )
+    $lang = Get-AcLanguage
+    if ($script:AcTextLang -ne $lang -or $null -eq $script:AcTextTable) {
+        $dir = Join-Path (Split-Path -Parent $PSScriptRoot) 'i18n'
+        $table = Import-PowerShellDataFile (Join-Path $dir 'ko.psd1')
+        if ($lang -ne 'ko') {
+            $overlay = Import-PowerShellDataFile (Join-Path $dir "$lang.psd1")
+            foreach ($k in $overlay.Keys) { $table[$k] = $overlay[$k] }
+        }
+        $script:AcTextTable = $table
+        $script:AcTextLang = $lang
+    }
+    $text = if ($script:AcTextTable.ContainsKey($Key)) { $script:AcTextTable[$Key] } else { $Key }
+    if (@($FormatArgs).Count -gt 0) { return ($text -f $FormatArgs) }
+    return $text
+}
+
+function Get-AcProfilePath {
+    param([Parameter(Mandatory)][string] $ProjectId)
+    Join-Path (Get-AcHome) "config/profiles/$ProjectId.json"
+}
+
+function Read-AcProfile {
+    param([Parameter(Mandatory)][string] $ProjectId)
+    $path = Get-AcProfilePath -ProjectId $ProjectId
+    if (-not (Test-Path $path)) { throw (Get-AcText 'common.err.noProfile' @($path)) }
+    Get-Content -Raw -Path $path | ConvertFrom-Json
+}
+
+function Test-AcProfileValue {
+    # profile.schema.json 과 같은 규칙의 저장 전 검증. 위반 목록을 돌려주고,
+    # 저장 함수는 위반이 하나라도 있으면 기존 파일을 건드리지 않는다(fail-closed).
+    param([Parameter(Mandatory)] $ProjectProfile)
+    if ($ProjectProfile -is [System.Collections.IDictionary]) { $ProjectProfile = [pscustomobject]$ProjectProfile }
+    $violations = [System.Collections.Generic.List[string]]::new()
+    $known = @('allowedGlobs', 'excludedGlobs', 'trackedOnly', 'maxDiffSizeBytes')
+    foreach ($name in $ProjectProfile.PSObject.Properties.Name) {
+        if ($name -cnotin $known) { $violations.Add((Get-AcText 'profile.err.unknownProp' @($name))) }
+    }
+    foreach ($name in $known) {
+        if (-not ($ProjectProfile.PSObject.Properties.Name -ccontains $name)) { $violations.Add((Get-AcText 'profile.err.missingProp' @($name))) }
+    }
+    if ($violations.Count -gt 0) { return $violations }
+
+    $allowed = @($ProjectProfile.allowedGlobs)
+    if ($allowed.Count -lt 1) { $violations.Add((Get-AcText 'profile.err.allowedMin')) }
+    foreach ($g in $allowed) {
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add((Get-AcText 'profile.err.allowedEmptyItem')) }
+    }
+    foreach ($g in @($ProjectProfile.excludedGlobs)) {
+        if (-not ($g -is [string]) -or -not $g.Trim()) { $violations.Add((Get-AcText 'profile.err.excludedEmptyItem')) }
+    }
+    if (-not ($ProjectProfile.trackedOnly -is [bool])) { $violations.Add((Get-AcText 'profile.err.trackedOnlyBool')) }
+    $maxBytes = $ProjectProfile.maxDiffSizeBytes
+    if (-not ($maxBytes -is [int] -or $maxBytes -is [long]) -or [long]$maxBytes -lt 1) {
+        $violations.Add((Get-AcText 'profile.err.maxBytes'))
+    }
+    return $violations
+}
+
+function Save-AcProfile {
+    param(
+        [Parameter(Mandatory)][string] $ProjectId,
+        [Parameter(Mandatory)] $ProjectProfile
+    )
+    $violations = Test-AcProfileValue -ProjectProfile $ProjectProfile
+    if (@($violations).Count -gt 0) {
+        throw ((Get-AcText 'profile.err.saveFailed') + "`n" + (@($violations) -join "`n"))
+    }
+    $path = Get-AcProfilePath -ProjectId $ProjectId
+    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+    $ordered = [ordered]@{
+        allowedGlobs     = @($ProjectProfile.allowedGlobs)
+        excludedGlobs    = @($ProjectProfile.excludedGlobs)
+        trackedOnly      = [bool]$ProjectProfile.trackedOnly
+        maxDiffSizeBytes = [long]$ProjectProfile.maxDiffSizeBytes
+    }
+    $tmp = "$path.tmp"
+    $ordered | ConvertTo-Json | Set-Content -Path $tmp -Encoding utf8
+    Move-Item -Path $tmp -Destination $path -Force
+    Write-AcLog -Level INFO -Message (Get-AcText 'profile.log.saved' @($ProjectId, @($ProjectProfile.allowedGlobs).Count))
+}
+
+$script:AcHandoffLogMarker = '<!-- agent-continuity:handoff-log -->'
+
+function Update-AcHandoffLog {
+    # CURRENT.md 끝의 자동 인계 기록을 마커 기반 섹션으로 관리한다: 새 기록을
+    # 맨 앞에 넣고 최근 $Keep 개만 유지, 같은 generation·기기의 기존 기록은
+    # 교체한다(같은 인계 재시도가 중복 기록을 만들지 않도록). 마커 위의 사용자
+    # 내용은 건드리지 않으며, 구버전의 무한 append 기록은 이때 함께 정리된다.
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [Parameter(Mandatory)][string] $RecordHeader,
+        [Parameter(Mandatory)][string] $RecordBody,
+        [int] $Keep = 3
+    )
+    $raw = if (Test-Path $Path) { Get-Content -Raw -Path $Path } else { '' }
+    $records = [System.Collections.Generic.List[string]]::new()
+    $userPart = $raw
+    $idx = $raw.IndexOf($script:AcHandoffLogMarker)
+    if ($idx -ge 0) {
+        $userPart = $raw.Substring(0, $idx)
+        foreach ($m in [regex]::Matches($raw.Substring($idx), '(?ms)^### .*?(?=^### |\z)')) {
+            $records.Add($m.Value.TrimEnd())
+        }
+    }
+    $legacyTitle = '## (인계 기록 \(자동\)|Handoff record \(automatic\))'
+    $userPart = [regex]::Replace($userPart,
+        "(?ms)\r?\n---\r?\n$legacyTitle\r?\n.*?(?=(\r?\n---\r?\n$legacyTitle)|\z)", '')
+
+    $headerPrefix = (($RecordHeader -split ' · ')[0..1] -join ' · ')
+    $kept = @($records | Where-Object { -not $_.StartsWith($headerPrefix) })
+    $all = @(@(($RecordHeader + "`n" + $RecordBody).TrimEnd()) + $kept | Select-Object -First $Keep)
+    $section = $script:AcHandoffLogMarker + "`n" +
+        (Get-AcText 'finish.record.managedTitle' @($Keep)) + "`n`n" +
+        ($all -join "`n`n") + "`n"
+    Set-Content -Path $Path -Value ($userPart.TrimEnd() + "`n`n" + $section) -Encoding utf8 -NoNewline
 }
 
 function Write-AcLog {
@@ -102,7 +272,7 @@ function Invoke-AcGit {
         Text     = ($lines -join "`n")
     }
     if ($code -ne 0 -and -not $AllowFail) {
-        throw "git $($Arguments -join ' ') 실패 (exit $code): $($result.Text)"
+        throw (Get-AcText 'common.err.gitFailed' @(($Arguments -join ' '), $code, $result.Text))
     }
     return $result
 }
@@ -118,7 +288,7 @@ function Get-AcShaFromOutput {
     # bare sha.
     param([Parameter(Mandatory)] $GitResult)
     $sha = @($GitResult.Output | Where-Object { $_ -match '^[0-9a-f]{40,64}$' }) | Select-Object -Last 1
-    if (-not $sha) { throw "git 출력에서 object id 를 찾지 못했습니다: $($GitResult.Text)" }
+    if (-not $sha) { throw (Get-AcText 'common.err.noSha' @($GitResult.Text)) }
     return $sha
 }
 
@@ -182,7 +352,7 @@ function Save-AcRefBlob {
         $proc.WaitForExit()
         if ($proc.ExitCode -ne 0) {
             Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-            throw "blob 추출 실패: $stderr"
+            throw (Get-AcText 'common.err.blobExtract' @($stderr))
         }
     } finally {
         $proc.Dispose()
@@ -324,7 +494,7 @@ function Get-AcIconPath {
     if (Test-Path $ico) { return $ico }
     if (Test-Path $png) {
         try { return (Convert-AcPngToIcon -PngPath $png -IcoPath $ico) }
-        catch { Write-AcLog -Level WARN -Message "아이콘 변환 실패: $_"; return $null }
+        catch { Write-AcLog -Level WARN -Message (Get-AcText 'common.warn.iconConvert' @($_)); return $null }
     }
     return $null
 }

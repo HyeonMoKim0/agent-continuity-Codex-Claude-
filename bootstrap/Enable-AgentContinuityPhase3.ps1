@@ -27,20 +27,20 @@ foreach ($m in @('CodexCliAdapter', 'ClaudeCodeAdapter')) {
 }
 
 $config = Get-AcConfig
-if (-not $config) { throw '설정이 없습니다. Setup-AgentContinuity.ps1 을 먼저 실행하세요.' }
+if (-not $config) { throw (Get-AcText 'common.err.noConfig') }
 $project = $config.projects | Where-Object { $_.name -eq $ProjectName }
-if (-not $project) { throw "등록되지 않은 프로젝트: $ProjectName" }
+if (-not $project) { throw (Get-AcText 'common.err.unknownProject' @($ProjectName)) }
 
 if ($Disable) {
     $project.allowSessionSnapshot = $false
     Save-AcConfig -Config $config
-    Write-Host "세션 스냅숏 비활성화: $ProjectName (Git 핸드오프만 사용)" -ForegroundColor Green
+    Write-Host (Get-AcText 'phase3.disabled' @($ProjectName)) -ForegroundColor Green
     exit 0
 }
 
 # gate 1: Phase 2 crypto (§12 Phase 3 은 Phase 2 통과 이후)
 if (-not (Test-AcCryptoEnabled)) {
-    Write-Host 'Phase 2 암호화가 활성화되어 있지 않습니다. Enable-AgentContinuityPhase2.ps1 을 먼저 실행하세요.' -ForegroundColor Red
+    Write-Host (Get-AcText 'phase3.needPhase2') -ForegroundColor Red
     exit 1
 }
 
@@ -48,16 +48,16 @@ if (-not (Test-AcCryptoEnabled)) {
 if ($Agent) {
     $project.agent = $Agent
 } elseif ($project.agent -notin @('codex', 'claude')) {
-    Write-Host "프로젝트 agent 가 '$($project.agent)' 입니다. -Agent codex|claude 로 지정하세요." -ForegroundColor Red
+    Write-Host (Get-AcText 'phase3.needAgent' @($project.agent)) -ForegroundColor Red
     exit 1
 }
 $agentName = $project.agent
 $version = Get-AcAdapterVersion -Agent $agentName
 if (-not $version) {
-    Write-Host "$agentName CLI 버전을 감지할 수 없습니다. CLI 설치/경로를 확인하세요." -ForegroundColor Red
+    Write-Host (Get-AcText 'phase3.noVersion' @($agentName)) -ForegroundColor Red
     exit 1
 }
-Write-Host "$agentName CLI 버전: $version"
+Write-Host (Get-AcText 'phase3.version' @($agentName, $version))
 
 # gate 3: 샘플 캡처 + 검사 (§8.1) — 이 worktree 의 기존 세션 파일 1개를 검증
 if (-not $SkipSampleCheck) {
@@ -67,16 +67,16 @@ if (-not $SkipSampleCheck) {
         Find-AcClaudeSessionFile -WorktreePath $project.worktreePath -SinceUtc ([DateTime]::MinValue)
     }
     if (-not $sample) {
-        Write-Host '이 worktree 의 세션 파일을 찾지 못했습니다.' -ForegroundColor Red
-        Write-Host "전용 worktree 에서 $agentName 을 한 번 실행해 세션을 만든 뒤 다시 시도하거나, -SkipSampleCheck 를 사용하세요."
+        Write-Host (Get-AcText 'phase3.noSession') -ForegroundColor Red
+        Write-Host (Get-AcText 'phase3.noSessionHint' @($agentName))
         exit 1
     }
     $integrity = Test-AcJsonlIntegrity -Path $sample.Path
     if (-not $integrity.Valid) {
-        Write-Host "샘플 세션 검사 실패: $($integrity.Reason) — 이 버전을 allowlist 에 추가하지 않습니다." -ForegroundColor Red
+        Write-Host (Get-AcText 'phase3.sampleFailed' @($integrity.Reason)) -ForegroundColor Red
         exit 1
     }
-    Write-Host "샘플 세션 검사 통과 (session: $($sample.SessionId), $($integrity.LineCount)행)"
+    Write-Host (Get-AcText 'phase3.samplePassed' @($sample.SessionId, $integrity.LineCount))
 }
 
 # version allowlist 등록
@@ -94,6 +94,6 @@ $project.allowSessionSnapshot = $true
 Save-AcConfig -Config $config
 
 Write-Host ''
-Write-Host "Phase 3 활성화 완료: $ProjectName · $agentName $version" -ForegroundColor Green
-Write-Host '주의: 실험 기능입니다. 미지원 버전·손상·충돌은 자동으로 Git 핸드오프로 강등되며, 로컬 세션을 덮어쓰지 않습니다 (§2.3, §8.3).'
+Write-Host (Get-AcText 'phase3.done' @($ProjectName, $agentName, $version)) -ForegroundColor Green
+Write-Host (Get-AcText 'phase3.experimental')
 exit 0

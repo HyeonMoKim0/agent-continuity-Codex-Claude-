@@ -16,30 +16,30 @@ function Check {
     else { Write-Host "  [FAIL] $Name $Detail" -ForegroundColor Red; $script:failures++ }
 }
 
-Write-Host '설치 자가진단:'
+Write-Host (Get-AcText 'diag.header')
 & git --version *> $null
-Check 'git 실행 가능' ($LASTEXITCODE -eq 0)
-Check 'PowerShell 7 이상' ($PSVersionTable.PSVersion.Major -ge 7)
+Check (Get-AcText 'diag.git') ($LASTEXITCODE -eq 0)
+Check (Get-AcText 'diag.pwsh') ($PSVersionTable.PSVersion.Major -ge 7)
 
 $config = Get-AcConfig
-Check '설정 파일 존재' ($null -ne $config)
+Check (Get-AcText 'diag.config') ($null -ne $config)
 if ($config) {
-    Check '기기 이름 등록됨' ([bool]$config.machineId)
+    Check (Get-AcText 'diag.machine') ([bool]$config.machineId)
     $vault = Invoke-AcGit -RepoPath (Get-AcVaultPath) -Arguments @('ls-remote', 'origin') -AllowFail
-    Check 'vault 저장소 접근' ($vault.ExitCode -eq 0)
+    Check (Get-AcText 'diag.vault') ($vault.ExitCode -eq 0)
 
     $projects = if ($ProjectName) { @($config.projects | Where-Object { $_.name -eq $ProjectName }) } else { @($config.projects) }
     foreach ($project in $projects) {
-        Write-Host "  프로젝트: $($project.name)"
-        Check '  전용 worktree 존재' (Test-Path (Join-Path $project.worktreePath '.git'))
+        Write-Host (Get-AcText 'diag.project' @($project.name))
+        Check (Get-AcText 'diag.worktree') (Test-Path (Join-Path $project.worktreePath '.git'))
         $remote = Invoke-AcGit -RepoPath $project.worktreePath -Arguments @('ls-remote', 'origin', "refs/heads/$($project.workBranch)") -AllowFail
-        Check '  프로젝트 원격 접근' ($remote.ExitCode -eq 0)
+        Check (Get-AcText 'diag.remote') ($remote.ExitCode -eq 0)
         $profilePath = Join-Path (Get-AcHome) "config/profiles/$($project.projectId).json"
-        Check '  profile 존재' (Test-Path $profilePath)
-        Check '  세션 스냅숏 비활성(Phase 1)' (-not [bool]$project.allowSessionSnapshot)
+        Check (Get-AcText 'diag.profile') (Test-Path $profilePath)
+        Check (Get-AcText 'diag.phase1Snapshot') (-not [bool]$project.allowSessionSnapshot)
     }
 }
 
-if ($failures -gt 0) { Write-Host "진단 실패: $failures 건" -ForegroundColor Red; exit 1 }
-Write-Host '진단 통과' -ForegroundColor Green
+if ($failures -gt 0) { Write-Host (Get-AcText 'diag.fail' @($failures)) -ForegroundColor Red; exit 1 }
+Write-Host (Get-AcText 'diag.pass') -ForegroundColor Green
 exit 0

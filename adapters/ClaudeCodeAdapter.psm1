@@ -63,7 +63,8 @@ function Resolve-AcClaudeRestorePath {
 
 function Get-AcClaudeLaunchCommand {
     param([Parameter(Mandatory)][string] $WorktreePath)
-    @{ FilePath = 'claude'; ArgumentList = @(); WorkingDirectory = $WorktreePath }
+    $bin = if ($env:AC_CLAUDE_BIN) { $env:AC_CLAUDE_BIN } else { 'claude' }
+    @{ FilePath = $bin; ArgumentList = @(); WorkingDirectory = $WorktreePath }
 }
 
 Export-ModuleMember -Function *-Ac*

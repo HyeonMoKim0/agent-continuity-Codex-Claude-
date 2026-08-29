@@ -102,22 +102,23 @@ function Test-AcBackupIntegrity {
     if (Test-Path $sidecarPath) {
         $sidecar = Get-Content -Raw $sidecarPath | ConvertFrom-Json
         $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $BackupFile).Hash.ToLowerInvariant()
-        if ($actual -ne $sidecar.cipherSha256) { $problems.Add('암호문 SHA-256 불일치 (파일 손상 의심)') }
+        if ($actual -ne $sidecar.cipherSha256) { $problems.Add((Get-AcText 'backup.problem.cipherMismatch')) }
     }
     $work = Join-Path (Get-AcSecureTempDir) ("vf-" + [Guid]::NewGuid().ToString('N'))
     try {
         New-Item -ItemType Directory -Path $work -Force | Out-Null
         $zip = Join-Path $work 'bundle.zip'
         try { Unprotect-AcFile -InputPath $BackupFile -OutputPath $zip }
-        catch { $problems.Add("복호화 실패: $_"); return @{ Valid = $false; Problems = @($problems) } }
+        catch { $problems.Add((Get-AcText 'backup.problem.decryptFailed' @($_))); return @{ Valid = $false; Problems = @($problems) } }
         $payload = Join-Path $work 'payload'
         Expand-Archive -Path $zip -DestinationPath $payload -Force
         $manifest = Get-Content -Raw (Join-Path $payload 'ac-manifest.json') | ConvertFrom-Json
+        Assert-AcSchemaVersion -Document $manifest -Source 'backup manifest'
         foreach ($f in $manifest.files) {
             $p = Join-Path $payload $f.path
-            if (-not (Test-Path -LiteralPath $p)) { $problems.Add("누락: $($f.path)"); continue }
+            if (-not (Test-Path -LiteralPath $p)) { $problems.Add((Get-AcText 'backup.problem.missing' @($f.path))); continue }
             $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash.ToLowerInvariant()
-            if ($h -ne $f.sha256) { $problems.Add("hash 불일치: $($f.path)") }
+            if ($h -ne $f.sha256) { $problems.Add((Get-AcText 'backup.problem.hashMismatch' @($f.path))) }
         }
         return @{ Valid = ($problems.Count -eq 0); Problems = @($problems); Manifest = $manifest }
     } finally {
@@ -173,7 +174,7 @@ function Restore-AcBackup {
             Copy-Item -LiteralPath $src -Destination $dst -Force
             $restored[$f.path] = $true
             $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash.ToLowerInvariant()
-            if ($h -ne $f.sha256) { throw "복원 후 hash 불일치: $($f.path)" }
+            if ($h -ne $f.sha256) { throw (Get-AcText 'backup.err.restoreHash' @($f.path)) }
         }
         return @{ Status = 'ok'; RestoredCount = @($manifest.files).Count; Quarantine = $quarantine }
     } catch {
@@ -188,7 +189,7 @@ function Restore-AcBackup {
                     New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
                     Copy-Item -LiteralPath $q -Destination $dst -Force
                     $h = (Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash.ToLowerInvariant()
-                    if ($h -ne $originalHashes[$f.path]) { throw "롤백 후 원본 hash 불일치: $($f.path)" }
+                    if ($h -ne $originalHashes[$f.path]) { throw (Get-AcText 'backup.err.rollbackHash' @($f.path)) }
                 } elseif ($restored.ContainsKey($f.path)) {
                     # file did not exist before this restore: remove what we wrote
                     Remove-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue

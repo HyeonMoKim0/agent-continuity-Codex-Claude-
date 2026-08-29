@@ -51,7 +51,10 @@ try {
         # desktop 에 실제 세션 fixture 를 만든 뒤 샘플 검사를 통과시켜 활성화
         $sessionPath = Get-SessionPath 'desktop-main'
         New-Item -ItemType Directory -Path (Split-Path -Parent $sessionPath) -Force | Out-Null
-        ('{"type":"session_meta","payload":{"id":"' + $sessionUuid + '","cwd":"' + $desktopWt + '"}}') |
+        # cwd 는 Windows 경로(백슬래시)일 수 있으므로 문자열 연결이 아니라
+        # ConvertTo-Json 으로 만들어야 유효한 JSON 이 된다.
+        (@{ type = 'session_meta'; payload = @{ id = $sessionUuid; cwd = $desktopWt } } |
+            ConvertTo-Json -Compress -Depth 4) |
             Set-Content -Path $sessionPath -Encoding utf8
 
         $on = P3 -Device 'desktop-main' -Script 'bootstrap/Enable-AgentContinuityPhase3.ps1' -Arguments @('-ProjectName', 'testproj', '-Agent', 'codex')

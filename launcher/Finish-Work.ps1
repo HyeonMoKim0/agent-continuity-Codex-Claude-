@@ -6,8 +6,7 @@
 
 param(
     [Parameter(Mandatory)][string] $ProjectName,
-    [int] $AgentStopTimeoutSec = 30,
-    [switch] $NonInteractive
+    [int] $AgentStopTimeoutSec = 30
 )
 
 Set-StrictMode -Version Latest
@@ -24,7 +23,8 @@ $acProfile = Get-AcProjectProfile -Project $project
 # --- 1. lease ownership re-verification (§6.3-1) -----------------------------
 $statePath = Get-AcSessionStatePath $projectId
 if (-not (Test-Path $statePath)) {
-    Show-AcAbort -Cause '진행 중인 세션 상태가 없습니다' -Preserved '무변경' -Recommended "'작업 시작'으로 세션을 연 기기에서 실행하세요"
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.noSession.cause') `
+        -Preserved (Get-AcText 'finish.abort.noSession.preserved') -Recommended (Get-AcText 'finish.abort.noSession.recommended')
     exit 2
 }
 $session = Get-Content -Raw $statePath | ConvertFrom-Json
@@ -33,8 +33,8 @@ if (-not $current.Lease -or $current.Lease.state -ne 'active' -or
     $current.Lease.machineId -ne $machineId -or
     [int]$current.Lease.generation -ne [int]$session.generation -or
     $current.Lease.leaseNonce -ne $session.leaseNonce) {
-    Show-AcAbort -Cause '원격 lease 소유권이 이 세션과 일치하지 않습니다' `
-        -Preserved '로컬 worktree 유지' -Recommended 'Show-Status.ps1 로 원격 상태를 확인하세요'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.ownership.cause') `
+        -Preserved (Get-AcText 'common.preserved.worktreeKept') -Recommended (Get-AcText 'common.recommended.showStatus')
     exit 3
 }
 
@@ -48,65 +48,65 @@ if (Test-Path $agentStatePath) {
         else { & /bin/kill -TERM $agentState.pid 2>$null }
         if (-not $proc.WaitForExit($AgentStopTimeoutSec * 1000)) {
             # Fail closed: no snapshot, no commit, lease kept (§6.3-3).
-            Show-AcAbort -Cause "에이전트가 제한 시간($AgentStopTimeoutSec 초) 안에 종료되지 않았습니다" `
-                -Preserved 'worktree·lease 유지, snapshot/commit 없음' `
-                -Recommended '에이전트를 직접 종료한 뒤 다시 Finish 하세요'
+            Show-AcAbort -Cause (Get-AcText 'finish.abort.agentStop.cause' @($AgentStopTimeoutSec)) `
+                -Preserved (Get-AcText 'finish.abort.agentStop.preserved') `
+                -Recommended (Get-AcText 'finish.abort.agentStop.recommended')
             exit 4
         }
     }
     Remove-Item $agentStatePath -Force -ErrorAction SilentlyContinue
 }
 
-# --- 3. collect + write the handoff record into CURRENT.md (§6.3-4 준비) -----
+# --- 3. probe + secret scan, BEFORE any worktree mutation (§6.3-4..5) --------
+# 중단으로 끝날 수 있는 검사(크기 한도·secret)는 인계 기록을 CURRENT.md 에
+# 쓰기 전에 끝낸다: 실패한 Finish 는 worktree 에 아무 흔적도 남기지 않는다.
 $lastTx = Get-AcLastTransaction -ProjectId $projectId
 $generation = if ($lastTx.Record) { [int]$lastTx.Record.generation + 1 } else { 1 }
 
 $probe = New-AcStagingSnapshot -Project $project -ProjectProfile $acProfile
 if ($probe.Status -eq 'too-large') {
-    Show-AcAbort -Cause "변경 크기($($probe.TotalBytes) bytes)가 maxDiffSizeBytes 를 초과합니다" `
-        -Preserved 'worktree·lease 유지' -Recommended 'profile 한도를 검토하거나 변경을 나누세요'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.tooLarge.cause' @($probe.TotalBytes)) `
+        -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.tooLarge.recommended')
+    exit 5
+}
+if ($probe.Status -ne 'ok') {
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.snapshot.cause' @($probe.Status)) `
+        -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.snapshot.recommended')
     exit 5
 }
 
-$currentMd = Join-Path $worktree 'docs/agent-handoff/CURRENT.md'
-if (Test-Path $currentMd) {
-    $stagedList = ($probe.Staged | ForEach-Object { "  - $($_.path)$(if ($_.deleted) { ' (삭제)' })" }) -join "`n"
-    if (-not $stagedList) { $stagedList = '  - (변경 없음)' }
-    $footer = @"
-
----
-## 인계 기록 (자동)
-- generation: $generation
-- 기기: $machineId
-- 세션: $($session.sessionId)
-- 시각(UTC, 표시용): $(Get-AcUtcNow)
-- 이번 인계에 포함된 변경:
-$stagedList
-"@
-    Add-Content -Path $currentMd -Value $footer -Encoding utf8
-}
-
-# --- 4. final staging snapshot within profile bounds (§6.3-4) ----------------
-$snapshot = New-AcStagingSnapshot -Project $project -ProjectProfile $acProfile
-if ($snapshot.Status -ne 'ok') {
-    Show-AcAbort -Cause "staging snapshot 실패: $($snapshot.Status)" -Preserved 'worktree·lease 유지' -Recommended 'profile 설정을 확인하세요'
-    exit 5
-}
-foreach ($skip in $snapshot.Skipped) {
-    Write-AcLog -Level WARN -Message "자동 커밋 제외: $($skip.path) ($($skip.reason))"
-}
-
-# --- 5. secret scan — findings block the commit itself (§6.3-5) --------------
-$scanPaths = @($snapshot.Staged | Where-Object { -not $_.deleted } | ForEach-Object { $_.path })
+$scanPaths = @($probe.Staged | Where-Object { -not $_.deleted } | ForEach-Object { $_.path })
 $scan = Invoke-AcSecretScan -WorktreePath $worktree -Paths $scanPaths
 if (-not $scan.Clean) {
     foreach ($f in $scan.Findings) {
-        Write-Host "  secret 의심: $($f.path):$($f.line) [$($f.rule)]" -ForegroundColor Red
+        Write-Host (Get-AcText 'finish.secretFinding' @($f.path, $f.line, $f.rule)) -ForegroundColor Red
     }
-    Show-AcAbort -Cause 'secret 탐지 — push 가 차단되었습니다' `
-        -Preserved 'worktree·lease 유지, commit 미생성' `
-        -Recommended '해당 파일을 열어 확인하거나 excludedGlobs 를 검토하세요'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.secret.cause') `
+        -Preserved (Get-AcText 'finish.abort.secret.preserved') `
+        -Recommended (Get-AcText 'finish.abort.secret.recommended')
     exit 6
+}
+
+# --- 4. bounded handoff record + final staging snapshot (§6.3-4) -------------
+$currentMd = Join-Path $worktree 'docs/agent-handoff/CURRENT.md'
+if (Test-Path $currentMd) {
+    $deletedSuffix = Get-AcText 'finish.staged.deletedSuffix'
+    $stagedList = ($probe.Staged | ForEach-Object { "  - $($_.path)$(if ($_.deleted) { $deletedSuffix })" }) -join "`n"
+    if (-not $stagedList) { $stagedList = Get-AcText 'finish.staged.none' }
+    Update-AcHandoffLog -Path $currentMd `
+        -RecordHeader (Get-AcText 'finish.record.header' @($generation, $machineId, (Get-AcUtcNow))) `
+        -RecordBody ((Get-AcText 'finish.record.session' @($session.sessionId)) + "`n" +
+            (Get-AcText 'finish.record.changes') + "`n" + $stagedList)
+}
+
+$snapshot = New-AcStagingSnapshot -Project $project -ProjectProfile $acProfile
+if ($snapshot.Status -ne 'ok') {
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.snapshot.cause' @($snapshot.Status)) `
+        -Preserved (Get-AcText 'finish.preserved.worktreeLease') -Recommended (Get-AcText 'finish.abort.snapshot.recommended')
+    exit 5
+}
+foreach ($skip in $snapshot.Skipped) {
+    Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.skipped' @($skip.path, $skip.reason))
 }
 
 # --- 6..8. single projectHead commit + object re-verify (§6.3-6..8) ----------
@@ -114,9 +114,9 @@ $expectedParent = (Invoke-AcGit -RepoPath $worktree -Arguments @('rev-parse', 'H
 $commit = New-AcProjectHeadCommit -Project $project -TreeSha $snapshot.TreeSha `
     -ExpectedParent $expectedParent -Message "handoff gen=$generation from $machineId"
 if ($commit.Status -ne 'ok') {
-    Show-AcAbort -Cause 'commit object 재검사 실패' `
-        -Preserved "quarantine branch: $($commit.QuarantineBranch), lease 유지" `
-        -Recommended 'Recover-Work.ps1 -Action Diagnostics 실행'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.commit.cause') `
+        -Preserved (Get-AcText 'finish.abort.commit.preserved' @($commit.QuarantineBranch)) `
+        -Recommended (Get-AcText 'common.recommended.diagnostics')
     exit 7
 }
 $projectHead = $commit.Sha
@@ -124,8 +124,8 @@ $projectHead = $commit.Sha
 # --- 9. CAS push of the project branch (§6.3-9) ------------------------------
 $push = Push-AcProjectHead -Project $project -Sha $projectHead
 if ($push.Status -ne 'ok') {
-    Show-AcAbort -Cause "프로젝트 push 실패($($push.Status)) — 인계 미완료" `
-        -Preserved 'lease 유지, 로컬 commit 보존' -Recommended '네트워크 확인 후 Finish 를 다시 실행하세요'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.push.cause' @($push.Status)) `
+        -Preserved (Get-AcText 'finish.abort.push.preserved') -Recommended (Get-AcText 'finish.abort.push.recommended')
     exit 8
 }
 Invoke-AcGit -RepoPath $worktree -Arguments @('reset', '--quiet', '--mixed', $projectHead) | Out-Null
@@ -135,7 +135,7 @@ $sessionCipherHash = $null
 $snapshotOk = $null
 if ([bool]$project.allowSessionSnapshot) {
     if (-not (Test-AcCryptoEnabled)) {
-        Write-AcLog -Level WARN -Message '세션 스냅숏이 켜져 있지만 Phase 2 암호화가 비활성 상태입니다. Git 핸드오프로 강등합니다.'
+        Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.phase2Disabled')
     } else {
         $sinceUtc = [DateTime]::Parse($session.startedAt, $null, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
         $snap = New-AcSessionSnapshot -Project $project -SinceUtc $sinceUtc -Generation $generation
@@ -143,18 +143,18 @@ if ([bool]$project.allowSessionSnapshot) {
             'ok' {
                 $sessionCipherHash = $snap.CipherHash
                 $snapshotOk = $snap
-                Write-Host "세션 스냅숏 push 완료 (session: $($snap.SessionId))"
+                Write-Host (Get-AcText 'finish.snapshot.done' @($snap.SessionId))
             }
             'corrupt' {
-                Write-AcLog -Level WARN -Message "세션 JSONL 손상($($snap.Reason)) — 스냅숏 없이 Git 핸드오프로 계속합니다. 손상 사본은 암호화 보존됨."
+                Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.snapshotCorrupt' @($snap.Reason))
             }
             { $_ -like 'skipped-*' } {
-                Write-AcLog -Level WARN -Message "세션 스냅숏 생략($($snap.Status)) — Git 핸드오프로 계속합니다."
+                Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.snapshotSkipped' @($snap.Status))
             }
             default {
                 # vault push 실패는 인계 미완료 (§6.3-9..12 실패 규칙)
-                Show-AcAbort -Cause "세션 스냅숏 push 실패($($snap.Status)) — 인계 미완료" `
-                    -Preserved 'lease 유지, 로컬 세션 파일 무변경' -Recommended 'Finish 를 다시 실행하세요'
+                Show-AcAbort -Cause (Get-AcText 'finish.abort.snapPush.cause' @($snap.Status)) `
+                    -Preserved (Get-AcText 'finish.abort.snapPush.preserved') -Recommended (Get-AcText 'finish.abort.snapPush.recommended')
                 exit 9
             }
         }
@@ -172,9 +172,9 @@ $txPush = Push-AcTransaction -ProjectId $projectId -Record $record
 if ($txPush.Status -ne 'pushed') {
     # Project commit is already remote but it is an orphan for Start until the
     # transaction completes — safe by design (§6.3, §11).
-    Show-AcAbort -Cause "transaction push 실패($($txPush.Status)) — 인계 미완료" `
-        -Preserved 'lease 유지, push 된 project commit 은 Start 가 읽지 않음' `
-        -Recommended 'Finish 를 다시 실행해 transaction 을 완결하세요'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.txPush.cause' @($txPush.Status)) `
+        -Preserved (Get-AcText 'finish.abort.txPush.preserved') `
+        -Recommended (Get-AcText 'finish.abort.txPush.recommended')
     exit 9
 }
 
@@ -182,8 +182,8 @@ if ($txPush.Status -ne 'pushed') {
 $tip = Get-AcRemoteBranchTip -WorktreePath $worktree -Branch $project.workBranch
 $verify = Get-AcLastTransaction -ProjectId $projectId
 if ($tip -ne $projectHead -or -not $verify.Record -or [int]$verify.Record.generation -ne $generation) {
-    Show-AcAbort -Cause '원격 read-back 불일치 — 인계 미완료' `
-        -Preserved 'lease 유지' -Recommended 'Show-Status.ps1 확인 후 Finish 재시도'
+    Show-AcAbort -Cause (Get-AcText 'finish.abort.readback.cause') `
+        -Preserved (Get-AcText 'finish.abort.readback.preserved') -Recommended (Get-AcText 'finish.abort.readback.recommended')
     exit 10
 }
 
@@ -205,11 +205,11 @@ $release = Release-AcLease -ProjectId $projectId -MachineId $machineId `
     -Generation ([int]$session.generation) -LeaseNonce $session.leaseNonce
 if ($release.Status -ne 'ok') {
     if ($release.Status -eq 'ownership-lost') {
-        Show-AcAbort -Cause '원격 lease 소유권이 변경되어 있습니다 (nonce 충돌)' `
-            -Preserved '인계 데이터는 완결됨' -Recommended 'Recover-Work.ps1 -Action LeaseInfo 로 보고하세요'
+        Show-AcAbort -Cause (Get-AcText 'finish.abort.nonceConflict.cause') `
+            -Preserved (Get-AcText 'finish.abort.nonceConflict.preserved') -Recommended (Get-AcText 'finish.abort.nonceConflict.recommended')
     } else {
-        Write-AcBanner -Color yellow -Message '인계 데이터는 완결, lease 해제 대기'
-        Write-Host "  Recover-Work.ps1 -ProjectName $ProjectName -Action ReleaseRetry 로 해제만 재시도할 수 있습니다."
+        Write-AcBanner -Color yellow -Message (Get-AcText 'finish.releasePending')
+        Write-Host (Get-AcText 'finish.releasePendingHint' @($ProjectName))
     }
     exit 11
 }
@@ -217,8 +217,8 @@ Remove-Item $statePath -Force -ErrorAction SilentlyContinue
 
 $usage = Get-AcBackupUsage
 if ($usage.OverLimit) {
-    Write-AcLog -Level WARN -Message "백업 총량이 한도를 초과했습니다. 정리가 필요합니다 (자동 삭제 안 함)."
+    Write-AcLog -Level WARN -Message (Get-AcText 'finish.warn.backupOverLimit')
 }
 
-Write-AcBanner -Color green -Message '인계 완료 · 다른 기기에서 시작할 수 있음'
+Write-AcBanner -Color green -Message (Get-AcText 'finish.done')
 exit 0
